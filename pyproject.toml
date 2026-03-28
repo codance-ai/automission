@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "automission"
+version = "0.1.1"
+description = "Multi-agent autonomous mission execution — give it a goal, an agent team collaborates to deliver results"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.1",
+    "jsonschema>=4.0",
+]
+authors = [{name = "Codance AI", email = "codance.ai@gmail.com"}]
+keywords = ["agents", "autonomous", "multi-agent", "orchestration", "docker", "llm", "claude", "codex", "gemini"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Repository = "https://github.com/codance-ai/automission"
+Issues = "https://github.com/codance-ai/automission/issues"
+Changelog = "https://github.com/codance-ai/automission/blob/main/CHANGELOG.md"
+
+[project.scripts]
+automission = "automission.cli:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/automission"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+norecursedirs = ["tests/fixtures"]
+markers = [
+    "e2e: real end-to-end tests (require Docker + API keys)",
+]
+
+[dependency-groups]
+dev = [
+    "bandit>=1.9.4",
+    "mypy>=1.19.1",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.15.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-tmp-files>=0.0.2",
+]

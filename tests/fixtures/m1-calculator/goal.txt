@@ -1,0 +1,4 @@
+Write add, subtract, multiply, divide functions in src/calc.py.
+All functions take two numeric arguments and return the result.
+Division by zero should raise ValueError with a descriptive message.
+All operations must handle negative numbers correctly.

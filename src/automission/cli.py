@@ -1,0 +1,1449 @@
+"""automission CLI — primary interface."""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import signal
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable
+
+import click
+
+if TYPE_CHECKING:
+    from automission.backend.protocol import AgentBackend
+    from automission.verifier import Verifier
+
+from automission.config import (
+    CONFIG_PATH,
+    _KEY_MAP,
+    generate_default_config,
+    load_config,
+    resolve_api_key,
+    resolve_auth_method,
+    resolve_default,
+)
+from automission.db import Ledger
+from automission.models import MissionOutcome, VerifierResult
+from automission.workspace import DEFAULT_BASE_DIR
+
+logger = logging.getLogger(__name__)
+
+# ── Signal handling ──
+
+
+def _setup_signal_handler(cancel_event: threading.Event):
+    """Install Ctrl+C handler: first press = graceful stop, second = force exit."""
+
+    def handler(signum, frame):
+        if cancel_event.is_set():
+            raise SystemExit(2)
+        click.echo("\nGracefully stopping... (press Ctrl+C again to force)")
+        cancel_event.set()
+
+    signal.signal(signal.SIGINT, handler)
+
+
+# ── Helper: find mission workspace ──
+
+
+def _find_mission_workspace(mission_id: str) -> Path | None:
+    """Scan DEFAULT_BASE_DIR and find the workspace for a given mission_id."""
+    base = DEFAULT_BASE_DIR
+    if not base.exists():
+        return None
+    for d in base.iterdir():
+        if d.is_dir() and (d / "mission.db").exists():
+            with Ledger(d / "mission.db") as ledger:
+                if ledger.get_mission(mission_id):
+                    return d
+    return None
+
+
+# ── CLI group ──
+
+
+@click.group()
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
+def cli(verbose: bool) -> None:
+    """automission — Multi-agent autonomous mission execution."""
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+
+# ── init command ──
+
+
+@cli.command()
+@click.option("--force", is_flag=True, help="Overwrite existing config file")
+def init(force: bool) -> None:
+    """Interactive setup: choose backends, auth, write config, pull Docker image."""
+
+    if CONFIG_PATH.exists() and not force:
+        click.echo(f"Config already exists: {CONFIG_PATH}")
+        click.echo("Use --force to overwrite.")
+        return
+
+    backends = ["claude", "codex", "gemini"]
+
+    # ── Step 1: Agent backend ──
+    click.echo("Step 1: Agent backend")
+    agent_backend = click.prompt(
+        "  Choose agent backend",
+        type=click.Choice(backends, case_sensitive=False),
+        default="claude",
+    )
+    agent_auth = _prompt_auth(agent_backend)
+
+    # ── Step 2: Planner backend ──
+    click.echo()
+    click.echo("Step 2: Planner backend")
+    planner_backend = click.prompt(
+        "  Choose planner backend",
+        type=click.Choice(backends, case_sensitive=False),
+        default="claude",
+    )
+    planner_auth = _prompt_auth(planner_backend)
+
+    # ── Step 3: Write config ──
+    click.echo()
+    already_existed = CONFIG_PATH.exists()
+    generate_default_config(
+        CONFIG_PATH,
+        agent_backend=agent_backend,
+        agent_auth=agent_auth,
+        planner_backend=planner_backend,
+        planner_auth=planner_auth,
+    )
+    action = "Overwrote" if force and already_existed else "Created"
+    click.echo(f"{action} config: {CONFIG_PATH} (mode 600)")
+    click.echo(
+        "Set API keys there or via environment variables (ANTHROPIC_API_KEY, etc.)"
+    )
+
+    # ── Step 4: Docker image ──
+    click.echo()
+    click.echo("Step 4: Docker image")
+    docker_ok = False
+    try:
+        subprocess.run(
+            ["docker", "version"],
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
+        click.secho("  Docker: available", fg="green")
+        docker_ok = True
+    except (
+        FileNotFoundError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ):
+        click.secho(
+            "  Docker: not found (required at runtime by `automission run`)",
+            fg="yellow",
+        )
+
+    if docker_ok:
+        cfg = load_config()
+        image = cfg.get("docker", "image", "ghcr.io/codance-ai/automission:latest")
+        result = subprocess.run(
+            ["docker", "image", "inspect", image],
+            capture_output=True,
+        )
+        if result.returncode == 0:
+            click.echo(f"  Image: {image} (already pulled)")
+        else:
+            if click.confirm(f"  Pull Docker image '{image}'?", default=True):
+                click.echo(f"  Pulling {image}...")
+                pull = subprocess.run(["docker", "pull", image], capture_output=False)
+                if pull.returncode == 0:
+                    click.secho(f"  Pulled: {image}", fg="green")
+                else:
+                    click.secho(
+                        f"  Failed to pull {image} (you can pull it later)", fg="yellow"
+                    )
+            else:
+                click.echo("  Skipped image pull.")
+
+
+def _prompt_auth(backend: str) -> str:
+    """Prompt for authentication method. Runs OAuth login if chosen.
+
+    Claude only supports api_key (returns immediately).
+    """
+    if backend == "claude":
+        return "api_key"
+
+    auth = click.prompt(
+        f"  Authentication for {backend}",
+        type=click.Choice(["api_key", "oauth"], case_sensitive=False),
+        default="api_key",
+    )
+    if auth == "oauth":
+        _run_oauth_login(backend)
+    return auth
+
+
+def _run_oauth_login(backend: str) -> None:
+    """Execute the OAuth login command for a backend."""
+    from automission.config import _OAUTH_LOGIN_CMDS
+
+    login_cmd = _OAUTH_LOGIN_CMDS.get(backend)
+    if not login_cmd:
+        return
+    click.echo(f"  Running: {' '.join(login_cmd)}")
+    try:
+        login_result = subprocess.run(login_cmd, timeout=120)
+        if login_result.returncode == 0:
+            click.secho(f"  {backend} OAuth: logged in", fg="green")
+        else:
+            click.secho(
+                f"  {backend} OAuth: login failed (exit {login_result.returncode})",
+                fg="yellow",
+            )
+    except FileNotFoundError:
+        click.secho(f"  {backend} CLI not found. Install it first.", fg="yellow")
+    except subprocess.TimeoutExpired:
+        click.secho(f"  {backend} OAuth: login timed out", fg="yellow")
+
+
+# ── run command ──
+
+
+@cli.command()
+@click.option("--goal", default=None, help="Mission goal text")
+@click.option(
+    "--goal-file",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to file containing goal text (mutually exclusive with --goal)",
+)
+@click.option(
+    "--acceptance", type=click.Path(exists=True), help="Path to ACCEPTANCE.md"
+)
+@click.option("--verify", type=click.Path(exists=True), help="Path to verify.sh")
+@click.option("--skill", multiple=True, help="Skill source (repeatable)")
+@click.option("--agents", default=2, type=int, help="Number of agents")
+@click.option("--max-iterations", default=20, type=int, help="Max attempts per agent")
+@click.option("--max-cost", default=10.0, type=float, help="Max total cost (USD)")
+@click.option("--timeout", default=3600, type=int, help="Max seconds")
+@click.option(
+    "--backend", default="claude", type=click.Choice(["claude", "codex", "gemini"])
+)
+@click.option("--model", default="claude-sonnet-4-6", help="Model for agent execution")
+@click.option(
+    "--docker-image",
+    default="ghcr.io/codance-ai/automission:latest",
+    help="Docker image for agent",
+)
+@click.option(
+    "--init-from",
+    type=click.Path(exists=True),
+    help="Copy initial files from directory",
+)
+@click.option(
+    "--workdir", type=click.Path(), help="Workspace directory (default: auto)"
+)
+@click.option("--yes", "-y", is_flag=True, help="Skip Planner confirmation")
+@click.option(
+    "--no-planner", is_flag=True, help="Skip Planner even if --acceptance is omitted"
+)
+@click.option("--planner-model", default="claude-sonnet-4-6", help="Model for Planner")
+@click.option(
+    "--planner-backend",
+    default="claude",
+    type=click.Choice(["claude", "codex", "gemini"]),
+    help="Backend for Planner/Critic structured output (default: claude)",
+)
+@click.option("--api-key", default=None, help="API key (overrides env var and config)")
+@click.option("--json", "json_output", is_flag=True, help="Output result as JSON")
+@click.option("--detach", is_flag=True, help="Start mission and return immediately")
+def run(
+    goal: str | None,
+    goal_file: str | None,
+    acceptance: str | None,
+    verify: str | None,
+    skill: tuple[str, ...],
+    agents: int,
+    max_iterations: int,
+    max_cost: float,
+    timeout: int,
+    backend: str,
+    model: str,
+    docker_image: str,
+    init_from: str | None,
+    workdir: str | None,
+    yes: bool,
+    no_planner: bool,
+    planner_model: str,
+    planner_backend: str,
+    api_key: str | None,
+    json_output: bool,
+    detach: bool,
+) -> None:
+    """Create and start a mission."""
+    # ── Resolve config defaults ──
+    cfg = load_config()
+    agents = resolve_default("agents", agents, cfg, 2)
+    max_cost = resolve_default("max_cost", max_cost, cfg, 10.0)
+    timeout = resolve_default("timeout", timeout, cfg, 3600)
+    backend = resolve_default("backend", backend, cfg, "claude")
+    docker_image = cfg.get("docker", "image", docker_image)
+    planner_model = cfg.get("planner", "model", planner_model)
+
+    # Resolve model: CLI flag (explicit) > config [defaults].model > CLI default
+    ctx = click.get_current_context()
+    if ctx.get_parameter_source("model") != click.core.ParameterSource.COMMANDLINE:
+        cfg_model = cfg.defaults.get("model")
+        if cfg_model:
+            model = cfg_model
+
+    # Resolve planner backend: CLI flag (explicit) > config [planner].backend > CLI default
+    if (
+        ctx.get_parameter_source("planner_backend")
+        != click.core.ParameterSource.COMMANDLINE
+    ):
+        cfg_planner_backend = cfg.get("planner", "backend")
+        if cfg_planner_backend:
+            planner_backend = cfg_planner_backend
+
+    # ── Resolve auth methods ──
+    agent_auth = resolve_auth_method(backend, cfg, section="defaults")
+    planner_auth = resolve_auth_method(planner_backend, cfg, section="planner")
+
+    # ── Resolve API key: CLI flag > env var > config ──
+    resolved_key = resolve_api_key(backend, api_key, cfg)
+    if resolved_key:
+        # Inject into env so backends (claude -p, docker) can find it
+        env_var = _KEY_MAP.get(backend, ("", ""))[0]
+        if env_var and not os.environ.get(env_var):
+            os.environ[env_var] = resolved_key
+
+    # Also resolve planner backend API key if different
+    if planner_backend != backend and planner_auth == "api_key":
+        planner_key = resolve_api_key(planner_backend, config=cfg)
+        if planner_key:
+            env_var = _KEY_MAP.get(planner_backend, ("", ""))[0]
+            if env_var and not os.environ.get(env_var):
+                os.environ[env_var] = planner_key
+
+    # Validate mutually exclusive --goal / --goal-file
+    if goal and goal_file:
+        raise click.UsageError("--goal and --goal-file are mutually exclusive.")
+    if not goal and not goal_file:
+        raise click.UsageError("Either --goal or --goal-file is required.")
+
+    # Read goal from file if --goal-file is provided
+    if goal_file:
+        goal = Path(goal_file).read_text().strip()
+        if not goal:
+            raise click.UsageError("--goal-file is empty.")
+
+    # ── Pre-flight: verify Docker is available (needed by Planner and mission) ──
+    try:
+        from automission.docker import ensure_docker
+
+        ensure_docker(docker_image)
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc))
+
+    # ── Planner flow: auto-generate acceptance if not provided ──
+    acceptance_content = None
+    verify_content = None
+    mission_content = None
+
+    if no_planner and not acceptance:
+        raise click.UsageError("Either provide --acceptance or remove --no-planner")
+
+    if not acceptance and not no_planner:
+        from automission.planner import Planner, PlanValidationError
+        from automission.planner import (
+            render_acceptance_md,
+            render_mission_md,
+            render_verify_sh,
+        )
+        from automission.structured_output import create_structured_backend
+
+        try:
+            click.echo("Planning mission...")
+            so_backend = create_structured_backend(
+                planner_backend, docker_image=docker_image, auth_method=planner_auth
+            )
+            planner = Planner(backend=so_backend, model=planner_model)
+            draft = planner.plan(goal)
+        except PlanValidationError as e:
+            raise click.ClickException(f"Planner validation failed: {e}")
+        except Exception as e:
+            raise click.ClickException(f"Planner API call failed: {e}")
+
+        _display_plan_draft(draft)
+
+        if not yes:
+            choice = click.prompt(
+                "Accept and start?",
+                type=click.Choice(["Y", "n", "edit"], case_sensitive=False),
+                default="Y",
+            )
+            if choice.lower() == "n":
+                click.echo("Mission cancelled.")
+                sys.exit(0)
+            if choice.lower() == "edit":
+                draft = _edit_plan_draft(draft)
+
+        acceptance_content = render_acceptance_md(draft)
+        mission_content = render_mission_md(draft)
+        if not verify:
+            verify_content = render_verify_sh(draft)
+
+    mission_id, ws = _create_mission_workspace(
+        goal=goal,
+        acceptance_path=Path(acceptance) if acceptance else None,
+        acceptance_content=acceptance_content,
+        verify_path=Path(verify) if verify else None,
+        verify_content=verify_content,
+        mission_content=mission_content,
+        skill_sources=list(skill),
+        agents=agents,
+        max_iterations=max_iterations,
+        max_cost=max_cost,
+        timeout=timeout,
+        backend_name=backend,
+        model=model,
+        docker_image=docker_image,
+        init_files_dir=Path(init_from) if init_from else None,
+        workspace_dir=Path(workdir) if workdir else None,
+        planner_backend_name=planner_backend,
+        agent_auth=agent_auth,
+    )
+
+    from automission.daemon import spawn_executor
+
+    spawn_executor(ws, mission_id)
+
+    if detach:
+        click.echo(f"Mission {mission_id} started in background.")
+        click.echo(f"Workspace: {ws}")
+        click.echo(f"  automission attach {mission_id}   — reconnect live view")
+        click.echo(f"  automission stop {mission_id}     — terminate mission")
+        sys.exit(0)
+
+    _attach_live_view(ws, mission_id)
+
+    # Read final state from ledger
+    outcome = MissionOutcome.FAILED
+    mission_stats = {}
+    changed_files_summary = []
+    try:
+        with Ledger(ws / "mission.db") as ledger:
+            m = ledger.get_mission(mission_id)
+            if m:
+                mission_stats = m
+                outcome = m["status"]
+            changed_files_summary = _collect_changed_files(ledger, mission_id, ws)
+    except Exception:
+        logger.warning("Could not load mission stats from ledger")
+
+    passed = outcome == MissionOutcome.COMPLETED
+    exit_code = MissionOutcome.EXIT_CODES.get(outcome, 1)
+
+    if json_output:
+        result = {
+            "mission_id": mission_id,
+            "status": outcome,
+            "total_cost": mission_stats.get("total_cost", 0.0),
+            "total_attempts": mission_stats.get("total_attempts", 0),
+            "changed_files": [f["path"] for f in changed_files_summary],
+            "workspace": str(ws),
+        }
+        click.echo(json.dumps(result, indent=2))
+    else:
+        if passed:
+            click.secho(f"\nMission {mission_id} completed successfully!", fg="green")
+        elif outcome == MissionOutcome.CANCELLED:
+            click.secho(f"\nMission {mission_id} cancelled.", fg="yellow")
+        elif outcome == MissionOutcome.RESOURCE_LIMIT:
+            click.secho(
+                f"\nMission {mission_id} stopped: resource limit exceeded.", fg="yellow"
+            )
+        else:
+            click.secho(
+                f"\nMission {mission_id} did not pass verification.", fg="yellow"
+            )
+
+        # Show changed files
+        if changed_files_summary:
+            click.echo("\nChanged files:")
+            for f in changed_files_summary:
+                marker = "+" if f["status"] == "new" else "M"
+                label = "(new)" if f["status"] == "new" else "(modified)"
+                click.echo(f"  {marker} {f['path']:40s} {label}")
+
+        click.echo(f"\nWorkspace: {ws}")
+        click.echo(f"Export:    automission export {mission_id} --output ./my-project")
+
+    sys.exit(exit_code)
+
+
+def _display_plan_draft(draft) -> None:
+    """Display PlanDraft summary to user."""
+    click.echo(f"\nGenerated acceptance checklist ({len(draft.groups)} groups):")
+    group_map = {g.id: i + 1 for i, g in enumerate(draft.groups)}
+    for i, g in enumerate(draft.groups, 1):
+        if g.depends_on:
+            dep_refs = ", ".join(str(group_map.get(d, "?")) for d in g.depends_on)
+            dep_str = f"(\u2192 {dep_refs})"
+        else:
+            dep_str = "(no deps)"
+        click.echo(
+            f"  [{i}] {g.id:20s} {dep_str:15s} \u2014 {len(g.criteria)} criteria"
+        )
+
+    if draft.constraints:
+        click.echo("\nConstraints:")
+        for c in draft.constraints:
+            click.echo(f"  - {c}")
+
+    click.echo(f"\nVerify command: {draft.verify_command}")
+
+    if draft.assumptions:
+        click.echo("\nAssumptions:")
+        for a in draft.assumptions:
+            click.echo(f"  - {a}")
+
+    click.echo()
+
+
+def _edit_plan_draft(draft):
+    """Open ACCEPTANCE.md in $EDITOR, re-parse, update draft."""
+    import os
+    import tempfile
+    from automission.acceptance import parse_acceptance_md
+    from automission.planner import render_acceptance_md
+    from automission.models import PlanCriterion, PlanGroup
+
+    content = render_acceptance_md(draft)
+    editor = os.environ.get("EDITOR", "vi")
+
+    while True:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", prefix="acceptance-", delete=False
+        ) as f:
+            f.write(content)
+            tmp_path = f.name
+
+        os.system(f'{editor} "{tmp_path}"')
+        try:
+            with open(tmp_path) as fh:
+                content = fh.read()
+        finally:
+            os.unlink(tmp_path)
+
+        try:
+            groups = parse_acceptance_md(content)
+            if not groups:
+                click.echo("Error: no acceptance groups found. Try again.")
+                continue
+            draft.groups = [
+                PlanGroup(
+                    id=g.id,
+                    name=g.name,
+                    depends_on=g.depends_on,
+                    criteria=[
+                        PlanCriterion(text=c.text, verification_hint="")
+                        for c in g.criteria
+                    ],
+                )
+                for g in groups
+            ]
+            return draft
+        except ValueError as e:
+            click.echo(f"Parse error: {e}")
+            if not click.confirm("Edit again?"):
+                click.echo("Using original plan.")
+                return draft
+
+
+def _run_mission(
+    goal: str,
+    acceptance_path: Path | None,
+    verify_path: Path | None,
+    skill_sources: list[str],
+    agents: int,
+    max_iterations: int,
+    max_cost: float,
+    timeout: int,
+    backend_name: str,
+    model: str = "claude-sonnet-4-6",
+    docker_image: str = "ghcr.io/codance-ai/automission:latest",
+    init_files_dir: Path | None = None,
+    workspace_dir: Path | None = None,
+    acceptance_content: str | None = None,
+    verify_content: str | None = None,
+    mission_content: str | None = None,
+    planner_backend_name: str = "claude",
+    agent_auth: str = "api_key",
+) -> tuple[bool, str, str, Path]:
+    """Create workspace and run loop. Returns (passed, mission_id, outcome, workspace)."""
+    from automission.workspace import create_mission
+    from automission.verifier import Verifier
+    from automission.docker import ensure_docker
+    from automission.structured_output import create_structured_backend
+
+    # Set up signal handler for graceful Ctrl+C
+    cancel_event = threading.Event()
+    _setup_signal_handler(cancel_event)
+
+    # Pre-flight: verify Docker is available
+    try:
+        ensure_docker(docker_image)
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc))
+
+    # Create backend
+    agent_backend = _create_backend(
+        backend_name, docker_image=docker_image, auth_method=agent_auth, model=model
+    )
+
+    import uuid
+
+    mission_id = uuid.uuid4().hex[:12]
+
+    click.echo(f"Creating mission {mission_id}...")
+
+    ws = create_mission(
+        mission_id=mission_id,
+        goal=goal,
+        acceptance_path=acceptance_path,
+        acceptance_content=acceptance_content,
+        verify_path=verify_path,
+        verify_content=verify_content,
+        mission_content=mission_content,
+        backend=agent_backend,
+        workspace_dir=workspace_dir,
+        skill_sources=skill_sources,
+        init_files_dir=init_files_dir,
+        agents=agents,
+        max_iterations=max_iterations,
+        max_cost=max_cost,
+        timeout=timeout,
+        backend_name=backend_name,
+        docker_image=docker_image,
+        model=model,
+    )
+
+    click.echo(f"Workspace: {ws}")
+
+    # Create verifier with structured output backend for critic
+    so_backend = create_structured_backend(
+        planner_backend_name, docker_image=docker_image
+    )
+    verifier = Verifier(
+        backend=so_backend,
+        docker_image=docker_image,
+    )
+
+    if agents > 1:
+        from automission.orchestrator import run_multi_agent
+
+        outcome = run_multi_agent(
+            mission_id=mission_id,
+            mission_dir=ws,
+            n_agents=agents,
+            backend=agent_backend,
+            verifier=verifier,
+            max_iterations=max_iterations,
+            max_cost=max_cost,
+            timeout=timeout,
+            cancel_flag=cancel_event.is_set,
+        )
+    else:
+        outcome = _run_single_agent_frontier(
+            mission_id=mission_id,
+            ws=ws,
+            backend=agent_backend,
+            verifier=verifier,
+            max_iterations=max_iterations,
+            max_cost=max_cost,
+            timeout=timeout,
+            cancel_flag=cancel_event.is_set,
+        )
+
+    return outcome == MissionOutcome.COMPLETED, mission_id, outcome, ws
+
+
+def _run_single_agent_frontier(
+    mission_id: str,
+    ws: Path,
+    backend: "AgentBackend",
+    verifier: "Verifier",
+    max_iterations: int,
+    max_cost: float,
+    timeout: int,
+    cancel_flag: Callable[[], bool],
+) -> str:
+    """Single-agent frontier loop: work on frontier groups one at a time.
+
+    Computes the frontier, picks the first available group, runs run_loop
+    scoped to that group, then re-computes the frontier. Repeats until
+    all groups are done or a circuit breaker fires.
+    """
+    from automission.loop import run_loop
+
+    failed_groups: set[str] = set()  # Track groups that stalled out
+
+    with Ledger(ws / "mission.db") as ledger:
+        while True:
+            if cancel_flag():
+                ledger.update_mission_status(mission_id, MissionOutcome.CANCELLED)
+                return MissionOutcome.CANCELLED
+
+            # Check resource limits
+            mission = ledger.get_mission(mission_id)
+            if mission is None:
+                return MissionOutcome.FAILED
+            if mission["total_attempts"] >= max_iterations:
+                ledger.update_mission_status(mission_id, MissionOutcome.RESOURCE_LIMIT)
+                return MissionOutcome.RESOURCE_LIMIT
+            if mission["total_cost"] >= max_cost:
+                ledger.update_mission_status(mission_id, MissionOutcome.RESOURCE_LIMIT)
+                return MissionOutcome.RESOURCE_LIMIT
+
+            # Compute frontier (excludes completed and claimed)
+            frontier_dicts = ledger.get_frontier_groups(mission_id)
+            if not frontier_dicts:
+                # No frontier = all groups done or blocked
+                groups = ledger.get_acceptance_groups(mission_id)
+                all_done = bool(groups) and all(
+                    ledger.is_group_completed(g.id) for g in groups
+                )
+                if all_done:
+                    ledger.update_mission_status(mission_id, MissionOutcome.COMPLETED)
+                    return MissionOutcome.COMPLETED
+                # Blocked (shouldn't happen in valid DAG)
+                ledger.update_mission_status(mission_id, MissionOutcome.FAILED)
+                return MissionOutcome.FAILED
+
+            # Get full AcceptanceGroup objects for the frontier, skip failed
+            all_groups = ledger.get_acceptance_groups(mission_id)
+            frontier_ids = {g["id"] for g in frontier_dicts}
+            target_groups = [
+                g
+                for g in all_groups
+                if g.id in frontier_ids and g.id not in failed_groups
+            ]
+
+            if not target_groups:
+                # All frontier groups have failed — mission fails
+                ledger.update_mission_status(mission_id, MissionOutcome.FAILED)
+                return MissionOutcome.FAILED
+
+            # Budget remaining iterations across frontier groups
+            remaining_iters = max_iterations - mission["total_attempts"]
+            per_group_iters = max(1, remaining_iters // len(target_groups))
+
+            logger.info(
+                "Frontier: %s (budget %d iters each)",
+                [g.id for g in target_groups],
+                per_group_iters,
+            )
+
+            # Work on the first available frontier group
+            current_group = target_groups[0]
+            outcome = run_loop(
+                mission_id=mission_id,
+                workdir=ws,
+                backend=backend,
+                verifier=verifier,
+                max_iterations=mission["total_attempts"] + per_group_iters,
+                max_cost=max_cost,
+                timeout=timeout,
+                cancel_flag=cancel_flag,
+                target_groups=[current_group],
+            )
+
+            if outcome == MissionOutcome.COMPLETED:
+                # Check if ALL groups done (target group passed, but others may remain)
+                groups = ledger.get_acceptance_groups(mission_id)
+                all_done = bool(groups) and all(
+                    ledger.is_group_completed(g.id) for g in groups
+                )
+                if all_done:
+                    ledger.update_mission_status(mission_id, MissionOutcome.COMPLETED)
+                    return MissionOutcome.COMPLETED
+                # Target group done, new frontier may have opened — loop
+                continue
+
+            if outcome == MissionOutcome.CANCELLED:
+                return MissionOutcome.CANCELLED
+
+            if outcome == MissionOutcome.RESOURCE_LIMIT:
+                return MissionOutcome.RESOURCE_LIMIT
+
+            # Stall/failure on this group — skip it and try next
+            failed_groups.add(current_group.id)
+            logger.info("Group %s failed, skipping", current_group.id)
+
+
+def _collect_changed_files(ledger: Ledger, mission_id: str, ws: Path) -> list[dict]:
+    """Aggregate changed files from all attempts and classify as new/modified."""
+    attempts = ledger.get_attempts(mission_id)
+    all_files: set[str] = set()
+    for a in attempts:
+        try:
+            files = json.loads(a.get("changed_files", "[]"))
+            all_files.update(files)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # Classify: check if the file existed in the initial commit (baseline)
+    import subprocess
+
+    baseline_files: set[str] = set()
+    result = subprocess.run(
+        ["git", "log", "--format=", "--name-only", "--diff-filter=A", "HEAD~1..HEAD~1"],
+        cwd=ws,
+        capture_output=True,
+        text=True,
+    )
+    # Simpler: check git log for the baseline commit's tree
+    result = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", "HEAD~"],
+        cwd=ws,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        baseline_files = set(result.stdout.strip().splitlines())
+
+    summary = []
+    for f in sorted(all_files):
+        if not f:
+            continue
+        status = "modified" if f in baseline_files else "new"
+        summary.append({"path": f, "status": status})
+    return summary
+
+
+def _create_backend(
+    name: str,
+    docker_image: str = "ghcr.io/codance-ai/automission:latest",
+    auth_method: str = "api_key",
+    model: str | None = None,
+):
+    """Create the appropriate backend adapter."""
+    if name == "claude":
+        from automission.backend.claude import ClaudeCodeBackend
+
+        return ClaudeCodeBackend(
+            docker_image=docker_image, auth_method="api_key", model=model
+        )
+    if name == "codex":
+        from automission.backend.codex import CodexBackend
+
+        return CodexBackend(
+            docker_image=docker_image, auth_method=auth_method, model=model
+        )
+    if name == "gemini":
+        from automission.backend.gemini import GeminiBackend
+
+        return GeminiBackend(
+            docker_image=docker_image, auth_method=auth_method, model=model
+        )
+    raise click.ClickException(f"Unknown backend: '{name}'")
+
+
+def _create_mission_workspace(
+    goal: str,
+    acceptance_path: Path | None,
+    verify_path: Path | None,
+    skill_sources: list[str],
+    agents: int,
+    max_iterations: int,
+    max_cost: float,
+    timeout: int,
+    backend_name: str,
+    model: str = "claude-sonnet-4-6",
+    docker_image: str = "ghcr.io/codance-ai/automission:latest",
+    init_files_dir: Path | None = None,
+    workspace_dir: Path | None = None,
+    acceptance_content: str | None = None,
+    verify_content: str | None = None,
+    mission_content: str | None = None,
+    planner_backend_name: str = "claude",
+    agent_auth: str = "api_key",
+) -> tuple[str, Path]:
+    """Create workspace and return (mission_id, workspace_path). Does NOT start execution."""
+    from automission.workspace import create_mission
+    from automission.docker import ensure_docker
+
+    try:
+        ensure_docker(docker_image)
+    except (RuntimeError, ValueError) as exc:
+        raise click.ClickException(str(exc))
+
+    agent_backend = _create_backend(
+        backend_name, docker_image=docker_image, auth_method=agent_auth, model=model
+    )
+
+    import uuid
+
+    mission_id = uuid.uuid4().hex[:12]
+    click.echo(f"Creating mission {mission_id}...")
+
+    ws = create_mission(
+        mission_id=mission_id,
+        goal=goal,
+        acceptance_path=acceptance_path,
+        acceptance_content=acceptance_content,
+        verify_path=verify_path,
+        verify_content=verify_content,
+        mission_content=mission_content,
+        backend=agent_backend,
+        workspace_dir=workspace_dir,
+        skill_sources=skill_sources,
+        init_files_dir=init_files_dir,
+        agents=agents,
+        max_iterations=max_iterations,
+        max_cost=max_cost,
+        timeout=timeout,
+        backend_name=backend_name,
+        docker_image=docker_image,
+        model=model,
+    )
+    return mission_id, ws
+
+
+def _attach_live_view(workspace_dir: Path, mission_id: str) -> None:
+    """Tail events.jsonl and render live progress. Ctrl+C exits cleanly."""
+    from automission.events import EventTailer
+
+    events_file = workspace_dir / "events.jsonl"
+    for _ in range(50):
+        if events_file.exists():
+            break
+        time.sleep(0.2)
+
+    if not events_file.exists():
+        click.echo("Error: executor did not start (no events file).")
+        return
+
+    tailer = EventTailer(events_file)
+    stop = threading.Event()
+
+    try:
+        for event in tailer.follow(stop_event=stop, poll_interval=0.2):
+            _render_event(event)
+    except KeyboardInterrupt:
+        click.echo(f"\nMission {mission_id} is still running in background.")
+        click.echo(f"  automission attach {mission_id}   — reconnect live view")
+        click.echo(f"  automission stop {mission_id}     — terminate mission")
+
+
+def _render_event(event: dict) -> None:
+    """Render a single event to terminal."""
+    etype = event.get("type", "unknown")
+    if etype == "mission_started":
+        mid = event.get("mission_id", "?")
+        agents = event.get("agents", 1)
+        click.echo(f"Mission {mid} started ({agents} agent{'s' if agents > 1 else ''})")
+    elif etype == "attempt_start":
+        agent = event.get("agent_id", "?")
+        attempt = event.get("attempt", "?")
+        click.echo(f"  [{agent}] attempt #{attempt} ...")
+    elif etype == "attempt_end":
+        status = event.get("status", "?")
+        cost = event.get("cost_usd", 0)
+        click.echo(f"  attempt done ({status}, ${cost:.2f})")
+    elif etype == "verification":
+        passed = event.get("passed", False)
+        score = event.get("score", "?")
+        color = "green" if passed else "red"
+        label = "PASS" if passed else "FAIL"
+        click.echo(f"  verify: {click.style(label, fg=color)} (score={score})")
+    elif etype == "group_start":
+        name = event.get("group_name", event.get("group_id", "?"))
+        click.echo(f"\nWorking on: {name}")
+    elif etype == "group_completed":
+        gid = event.get("group_id", "?")
+        click.secho(f"  Group {gid} completed!", fg="green")
+    elif etype == "mission_completed":
+        cost = event.get("total_cost", 0)
+        attempts = event.get("total_attempts", 0)
+        click.secho(
+            f"\nMission completed! (${cost:.2f}, {attempts} attempts)", fg="green"
+        )
+    elif etype == "mission_failed":
+        outcome = event.get("outcome", "failed")
+        click.secho(f"\nMission ended: {outcome}", fg="yellow")
+    elif etype == "executor_shutdown":
+        reason = event.get("reason", "unknown")
+        click.echo(f"\nExecutor stopped: {reason}")
+    else:
+        data = {k: v for k, v in event.items() if k not in ("type", "ts")}
+        if data:
+            click.echo(f"  [{etype}] {json.dumps(data)}")
+
+
+# ── status command ──
+
+
+@cli.command()
+@click.argument("mission_id", required=False)
+def status(mission_id: str | None) -> None:
+    """Show mission status."""
+    base = DEFAULT_BASE_DIR
+    if not base.exists():
+        click.echo("No missions found.")
+        return
+
+    if mission_id:
+        _show_mission_status(mission_id)
+    else:
+        _show_latest_mission()
+
+
+def _show_mission_status(mission_id: str) -> None:
+    """Show status for a specific mission."""
+    base = DEFAULT_BASE_DIR
+    if not base.exists():
+        click.echo(f"Mission {mission_id} not found.")
+        return
+
+    # Search all mission dirs for this mission_id
+    for d in base.iterdir():
+        if d.is_dir() and (d / "mission.db").exists():
+            with Ledger(d / "mission.db") as ledger:
+                m = ledger.get_mission(mission_id)
+                if m:
+                    _print_mission(m, d, ledger)
+                    return
+
+    click.echo(f"Mission {mission_id} not found.")
+
+
+def _show_latest_mission() -> None:
+    """Show status of the most recent mission."""
+    base = DEFAULT_BASE_DIR
+    if not base.exists():
+        click.echo("No missions found.")
+        return
+
+    mission_dirs = [
+        d for d in base.iterdir() if d.is_dir() and (d / "mission.db").exists()
+    ]
+    if not mission_dirs:
+        click.echo("No missions found.")
+        return
+
+    latest = max(mission_dirs, key=lambda d: d.stat().st_mtime)
+    with Ledger(latest / "mission.db") as ledger:
+        missions = ledger.list_missions()
+        if missions:
+            _print_mission(missions[0], latest, ledger)
+        else:
+            click.echo("No missions found in ledger.")
+
+
+def _print_mission(mission: dict, ws: Path, ledger: Ledger) -> None:
+    """Print mission status details."""
+    mission_id = mission["id"]
+    click.echo(f"Mission:  {mission_id}")
+    click.echo(f"Status:   {mission['status']}")
+    click.echo(f"Cost:     ${mission['total_cost']:.2f}")
+    click.echo(f"Attempts: {mission['total_attempts']}")
+    if mission["agents"] > 1:
+        click.echo(f"Agents:   {mission['agents']}")
+    click.echo(f"Workspace: {ws}")
+
+    groups = ledger.get_acceptance_groups(mission_id)
+    if groups:
+        click.echo("\nAcceptance Checklist:")
+        for g in groups:
+            row = ledger.conn.execute(
+                "SELECT completed FROM acceptance_groups WHERE id = ?", (g.id,)
+            ).fetchone()
+            completed = bool(row[0]) if row else False
+            marker = (
+                click.style("✓", fg="green")
+                if completed
+                else click.style("○", fg="yellow")
+            )
+            click.echo(f"  {marker} {g.name}")
+
+    attempts = ledger.get_attempts(mission_id)
+    if attempts:
+        click.echo("\nAttempt History:")
+        for a in attempts:
+            gate = "PASS" if a["verification_passed"] else "FAIL"
+            color = "green" if a["verification_passed"] else "red"
+            click.echo(
+                f"  #{a['attempt_number']}  {a['agent_id']:10s}  "
+                f"{click.style(gate, fg=color):4s}  "
+                f"${a['cost_usd']:.2f}  {a['duration_s']:.0f}s"
+            )
+
+
+# ── logs command ──
+
+
+@cli.command()
+@click.argument("mission_id", required=False)
+@click.option("--last", type=int, help="Show last N attempts")
+@click.option(
+    "-v", "--verbose", "verbose_logs", is_flag=True, help="Include verification details"
+)
+@click.option("-f", "--follow", is_flag=True, help="Live follow mode (poll every 2s)")
+@click.option("--json", "json_output", is_flag=True, help="JSON output")
+def logs(mission_id, last, verbose_logs, follow, json_output):
+    """Show mission attempt logs."""
+    # Find the workspace
+    ws = None
+    if mission_id:
+        ws = _find_mission_workspace(mission_id)
+    else:
+        # Find most recent mission
+        base = DEFAULT_BASE_DIR
+        if base.exists():
+            mission_dirs = [
+                d for d in base.iterdir() if d.is_dir() and (d / "mission.db").exists()
+            ]
+            if mission_dirs:
+                ws = max(mission_dirs, key=lambda d: d.stat().st_mtime)
+                # Get mission_id from the ledger
+                with Ledger(ws / "mission.db") as ledger:
+                    missions = ledger.list_missions()
+                    if missions:
+                        mission_id = missions[0]["id"]
+
+    if not ws or not mission_id:
+        click.echo("No missions found.")
+        return
+
+    def _display_attempts():
+        with Ledger(ws / "mission.db") as ledger:
+            attempts = ledger.get_attempts(mission_id)
+            if not attempts:
+                click.echo("No attempts found.")
+                return 0
+
+            if last:
+                attempts = attempts[-last:]
+
+            if json_output:
+                output = []
+                for a in attempts:
+                    entry = {
+                        "attempt_number": a["attempt_number"],
+                        "agent_id": a["agent_id"],
+                        "status": a["status"],
+                        "verification_passed": bool(a["verification_passed"]),
+                        "cost_usd": a["cost_usd"],
+                        "duration_s": a["duration_s"],
+                    }
+                    if verbose_logs and a.get("verification_result"):
+                        try:
+                            entry["verification_result"] = json.loads(
+                                a["verification_result"]
+                            )
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                    output.append(entry)
+                click.echo(json.dumps(output, indent=2))
+            else:
+                for a in attempts:
+                    gate = "PASS" if a["verification_passed"] else "FAIL"
+                    color = "green" if a["verification_passed"] else "red"
+                    click.echo(
+                        f"  #{a['attempt_number']}  {a['agent_id']:10s}  "
+                        f"{click.style(gate, fg=color):4s}  "
+                        f"${a['cost_usd']:.2f}  {a['duration_s']:.0f}s"
+                    )
+                    if verbose_logs and a.get("verification_result"):
+                        try:
+                            vr = VerifierResult.from_json(a["verification_result"])
+                            if vr.failed_criteria:
+                                for c in vr.failed_criteria:
+                                    click.echo(f"    FAIL: {c.criterion}: {c.detail}")
+                            if vr.suggestion:
+                                click.echo(f"    Suggestion: {vr.suggestion}")
+                        except (json.JSONDecodeError, KeyError):
+                            pass
+
+            return len(attempts)
+
+    initial_count = _display_attempts()
+
+    if follow:
+        seen = initial_count
+        try:
+            while True:
+                with Ledger(ws / "mission.db") as ledger:
+                    attempts = ledger.get_attempts(mission_id)
+                    if len(attempts) > seen:
+                        new_attempts = attempts[seen:]
+                        for a in new_attempts:
+                            gate = "PASS" if a["verification_passed"] else "FAIL"
+                            color = "green" if a["verification_passed"] else "red"
+                            click.echo(
+                                f"  #{a['attempt_number']}  {a['agent_id']:10s}  "
+                                f"{click.style(gate, fg=color):4s}  "
+                                f"${a['cost_usd']:.2f}  {a['duration_s']:.0f}s"
+                            )
+                        seen = len(attempts)
+                    # Check if mission is still running
+                    m = ledger.get_mission(mission_id)
+                    if m and m["status"] != "running":
+                        click.echo(f"Mission {mission_id} is {m['status']}.")
+                        break
+                time.sleep(2)
+        except KeyboardInterrupt:
+            pass
+
+
+# ── attach command ──
+
+
+@cli.command()
+@click.argument("mission_id")
+def attach(mission_id: str) -> None:
+    """Reconnect to a running mission's live view."""
+    ws = _find_mission_workspace(mission_id)
+    if not ws:
+        click.echo(f"Mission {mission_id} not found.")
+        return
+    from automission.daemon import is_executor_alive
+
+    if not is_executor_alive(ws, mission_id):
+        with Ledger(ws / "mission.db") as ledger:
+            m = ledger.get_mission(mission_id)
+        if m:
+            click.echo(f"Mission {mission_id} is not running (status: {m['status']}).")
+        else:
+            click.echo(f"Mission {mission_id} not found.")
+        return
+    click.echo(f"Attaching to mission {mission_id}...")
+    _attach_live_view(ws, mission_id)
+
+
+# ── stop command ──
+
+
+@cli.command()
+@click.argument("mission_id", required=False)
+@click.option("--yes", "-y", is_flag=True)
+def stop(mission_id, yes):
+    """Stop a running mission."""
+    from automission.daemon import (
+        is_executor_alive,
+        stop_executor,
+        wait_for_executor_exit,
+    )
+
+    if not mission_id:
+        # Find most recent running mission
+        base = DEFAULT_BASE_DIR
+        if not base.exists():
+            click.echo("Mission not found.")
+            return
+        mission_dirs = [
+            d for d in base.iterdir() if d.is_dir() and (d / "mission.db").exists()
+        ]
+        if not mission_dirs:
+            click.echo("Mission not found.")
+            return
+        latest = max(mission_dirs, key=lambda d: d.stat().st_mtime)
+        with Ledger(latest / "mission.db") as ledger:
+            missions = ledger.list_missions()
+            running = [m for m in missions if m["status"] == "running"]
+            if not running:
+                click.echo("No running missions found.")
+                return
+            mission_id = running[0]["id"]
+
+    ws = _find_mission_workspace(mission_id)
+    if not ws:
+        click.echo(f"Mission {mission_id} not found.")
+        return
+
+    with Ledger(ws / "mission.db") as ledger:
+        m = ledger.get_mission(mission_id)
+        if not m:
+            click.echo(f"Mission {mission_id} not found.")
+            return
+
+        if m["status"] != "running":
+            click.echo(f"Mission {mission_id} is not running (status: {m['status']}).")
+            return
+
+        if not yes:
+            if not click.confirm(f"Stop mission {mission_id}?"):
+                return
+
+    if is_executor_alive(ws, mission_id):
+        stop_executor(ws, mission_id)
+        click.echo(f"Stopping mission {mission_id}...")
+        if wait_for_executor_exit(ws, mission_id, timeout=30):
+            click.echo(f"Mission {mission_id} stopped.")
+        else:
+            click.echo(
+                f"Mission {mission_id} did not stop within 30s — may still be shutting down."
+            )
+    else:
+        # Executor not alive, fallback to DB update
+        with Ledger(ws / "mission.db") as ledger:
+            ledger.update_mission_status(mission_id, MissionOutcome.CANCELLED)
+        click.echo(f"Mission {mission_id} marked as cancelled.")
+
+
+# ── list command ──
+
+
+@cli.command(name="list")
+@click.option("--json", "json_output", is_flag=True)
+def list_missions(json_output):
+    """List all missions."""
+    base = DEFAULT_BASE_DIR
+    if not base.exists():
+        if json_output:
+            click.echo("[]")
+        else:
+            click.echo("No missions found.")
+        return
+
+    mission_dirs = [
+        d for d in base.iterdir() if d.is_dir() and (d / "mission.db").exists()
+    ]
+    if not mission_dirs:
+        if json_output:
+            click.echo("[]")
+        else:
+            click.echo("No missions found.")
+        return
+
+    all_missions = []
+    for d in sorted(mission_dirs, key=lambda d: d.stat().st_mtime, reverse=True):
+        try:
+            with Ledger(d / "mission.db") as ledger:
+                for m in ledger.list_missions():
+                    all_missions.append(
+                        {
+                            "id": m["id"],
+                            "status": m["status"],
+                            "goal": m["goal"][:80] if m["goal"] else "",
+                            "total_cost": m["total_cost"],
+                            "total_attempts": m["total_attempts"],
+                            "workspace": str(d),
+                        }
+                    )
+        except Exception:
+            logger.warning("Could not read ledger in %s", d)
+
+    if not all_missions:
+        if json_output:
+            click.echo("[]")
+        else:
+            click.echo("No missions found.")
+        return
+
+    if json_output:
+        click.echo(json.dumps(all_missions, indent=2))
+    else:
+        for m in all_missions:
+            status_color = {
+                "completed": "green",
+                "failed": "red",
+                "cancelled": "yellow",
+                "running": "blue",
+                "resource_limit": "yellow",
+            }.get(m["status"], "white")
+            status_padded = m["status"].ljust(16)
+            styled_status = click.style(status_padded, fg=status_color)
+            cost = m["total_cost"]
+            goal_short = m["goal"][:50]
+            click.echo(
+                f"  {m['id']}  {styled_status}  "
+                f"${cost:.2f}  {m['total_attempts']} attempts  "
+                f"{goal_short}"
+            )
+
+
+# ── resume command ──
+
+
+@cli.command()
+@click.argument("mission_id")
+@click.option("--detach", is_flag=True, help="Start mission and return immediately")
+def resume(mission_id, detach):
+    """Resume a stopped or failed mission."""
+    from automission.daemon import is_executor_alive, spawn_executor
+    from automission.executor import reconcile_stale_state
+
+    ws = _find_mission_workspace(mission_id)
+    if not ws:
+        click.echo(f"Mission {mission_id} not found.")
+        return
+
+    with Ledger(ws / "mission.db") as ledger:
+        m = ledger.get_mission(mission_id)
+        if not m:
+            click.echo(f"Mission {mission_id} not found.")
+            return
+
+        if m["status"] == MissionOutcome.COMPLETED:
+            click.echo(f"Mission {mission_id} is already completed.")
+            return
+
+    if is_executor_alive(ws, mission_id):
+        click.echo(f"Mission {mission_id} is already running.")
+        click.echo(f"  automission attach {mission_id}   — reconnect live view")
+        return
+
+    reconcile_stale_state(ws, mission_id)
+    click.echo(f"Resuming mission {mission_id}...")
+    click.echo(f"Workspace: {ws}")
+
+    spawn_executor(ws, mission_id)
+
+    if detach:
+        click.echo(f"Mission {mission_id} resumed in background.")
+        click.echo(f"  automission attach {mission_id}   — reconnect live view")
+        click.echo(f"  automission stop {mission_id}     — terminate mission")
+        return
+
+    _attach_live_view(ws, mission_id)
+
+    # Read final state from ledger
+    outcome = MissionOutcome.FAILED
+    try:
+        with Ledger(ws / "mission.db") as ledger:
+            m = ledger.get_mission(mission_id)
+            if m:
+                outcome = m["status"]
+    except Exception:
+        logger.warning("Could not load mission status from ledger")
+
+    exit_code = MissionOutcome.EXIT_CODES.get(outcome, 1)
+    passed = outcome == MissionOutcome.COMPLETED
+
+    if passed:
+        click.secho(f"\nMission {mission_id} completed successfully!", fg="green")
+    elif outcome == MissionOutcome.CANCELLED:
+        click.secho(f"\nMission {mission_id} cancelled.", fg="yellow")
+    elif outcome == MissionOutcome.RESOURCE_LIMIT:
+        click.secho(
+            f"\nMission {mission_id} stopped: resource limit exceeded.", fg="yellow"
+        )
+    else:
+        click.secho(f"\nMission {mission_id} did not pass verification.", fg="yellow")
+
+    sys.exit(exit_code)

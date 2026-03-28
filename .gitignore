@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+*.db
+.pytest_cache/
+dist/
+build/
+docs/superpowers/
+.claude/worktrees/
+uv.lock
+.coverage
