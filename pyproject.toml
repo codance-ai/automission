@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "automission"
-version = "0.1.1"
+version = "0.2.0"
 description = "Multi-agent autonomous mission execution — give it a goal, an agent team collaborates to deliver results"
 readme = "README.md"
 license = {text = "MIT"}
