@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -1295,6 +1296,68 @@ def list_missions(json_output):
                 f"${cost:.2f}  {m['total_attempts']} attempts  "
                 f"{goal_short}"
             )
+
+
+# ── export command ──
+
+# Internal files that should not be exported
+_EXPORT_EXCLUDE = {
+    ".git",
+    "mission.db",
+    "mission.db-journal",
+    "mission.db-wal",
+    "mission.db-shm",
+    "__pycache__",
+    "MISSION.md",
+    "ACCEPTANCE.md",
+    "AUTOMISSION.md",
+    "verify.sh",
+    "skills",
+}
+
+
+@cli.command()
+@click.argument("mission_id")
+@click.option(
+    "--output",
+    "-o",
+    required=True,
+    type=click.Path(),
+    help="Target directory to export to",
+)
+@click.option("--force", is_flag=True, help="Overwrite existing target directory")
+def export(mission_id: str, output: str, force: bool) -> None:
+    """Export mission workspace to a directory."""
+    ws = _find_mission_workspace(mission_id)
+    if not ws:
+        click.echo(f"Mission {mission_id} not found.")
+        sys.exit(1)
+
+    target = Path(output)
+    if target.exists():
+        if not force:
+            click.echo(
+                f"Target directory already exists: {target}\n"
+                "Use --force to overwrite."
+            )
+            sys.exit(1)
+        shutil.rmtree(target)
+
+    target.mkdir(parents=True, exist_ok=True)
+
+    copied = 0
+    for item in ws.rglob("*"):
+        # Skip excluded top-level entries and their children
+        rel = item.relative_to(ws)
+        if rel.parts[0] in _EXPORT_EXCLUDE:
+            continue
+        if item.is_file():
+            dest = target / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, dest)
+            copied += 1
+
+    click.echo(f"Exported {copied} files to {target}")
 
 
 # ── resume command ──

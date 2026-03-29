@@ -45,7 +45,7 @@ When `--backend` is specified, the CLI looks up the corresponding key:
 | `automission stop` | Stop a running mission | **MVP** |
 | `automission list` | List all missions | **MVP** |
 | `automission resume` | Resume a stopped/crashed mission | **MVP** |
-| `automission export` | Export results to a directory | Planned |
+| `automission export` | Export results to a directory | **MVP** |
 | `automission limits` | Adjust runtime constraints | Planned |
 | `automission config` | View/edit global configuration | Planned |
 
@@ -302,15 +302,14 @@ Reads ledger, restarts agent loops from where they left off. Same blocking behav
 
 ---
 
-### `automission export` *(Planned)*
+### `automission export`
 
-Copy mission results to a target directory.
+Copy mission results to a target directory, excluding automission internals (`.git`, `mission.db`, `MISSION.md`, `ACCEPTANCE.md`, `AUTOMISSION.md`, `verify.sh`, `skills/`, `__pycache__`).
 
 ```bash
 automission export abc123 --output ./my-new-project
+automission export abc123 -o ./my-new-project --force  # overwrite existing
 ```
-
-Copies workspace source code (excluding automission internals) to the target directory.
 
 ---
 
