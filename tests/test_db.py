@@ -223,9 +223,9 @@ class TestAttempts:
         assert mission["total_cost"] == 0.50
         assert mission["total_attempts"] == 1
 
-    def test_get_best_attempt(self, ledger):
+    def test_get_best_attempt_returns_most_recent_passing(self, ledger):
         ledger.create_mission(mission_id="m1", goal="test", backend="claude")
-        # Attempt 1: score 0.3
+        # Attempt 1: failed
         ledger.record_attempt(
             attempt_id="a1",
             mission_id="m1",
@@ -239,27 +239,27 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=False,
-            verification_result='{"contract_passed": false, "mission_passed": false, "gate_source": "script", "score": 0.3, "suggestion": ""}',
+            verification_result="{}",
             commit_hash="aaa",
         )
-        # Attempt 2: score 0.7
+        # Attempt 2: passed
         ledger.record_attempt(
             attempt_id="a2",
             mission_id="m1",
             agent_id="agent-1",
             attempt_number=2,
             status="completed",
-            exit_code=1,
+            exit_code=0,
             duration_s=60.0,
             cost_usd=0.20,
             token_input=3000,
             token_output=2000,
             changed_files=[],
-            verification_passed=False,
-            verification_result='{"contract_passed": false, "mission_passed": false, "gate_source": "script", "score": 0.7, "suggestion": ""}',
+            verification_passed=True,
+            verification_result="{}",
             commit_hash="bbb",
         )
-        # Attempt 3: score 0.5
+        # Attempt 3: failed again
         ledger.record_attempt(
             attempt_id="a3",
             mission_id="m1",
@@ -273,12 +273,32 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=False,
-            verification_result='{"contract_passed": false, "mission_passed": false, "gate_source": "script", "score": 0.5, "suggestion": ""}',
+            verification_result="{}",
             commit_hash="ccc",
         )
         best = ledger.get_best_attempt("m1")
         assert best is not None
         assert best["attempt_id"] == "a2"
+
+    def test_get_best_attempt_no_passing(self, ledger):
+        ledger.create_mission(mission_id="m1", goal="test", backend="claude")
+        ledger.record_attempt(
+            attempt_id="a1",
+            mission_id="m1",
+            agent_id="agent-1",
+            attempt_number=1,
+            status="completed",
+            exit_code=1,
+            duration_s=60.0,
+            cost_usd=0.20,
+            token_input=3000,
+            token_output=2000,
+            changed_files=[],
+            verification_passed=False,
+            verification_result="{}",
+            commit_hash="aaa",
+        )
+        assert ledger.get_best_attempt("m1") is None
 
     def test_get_best_attempt_empty(self, ledger):
         ledger.create_mission(mission_id="m1", goal="test", backend="claude")

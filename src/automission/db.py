@@ -549,23 +549,16 @@ class Ledger:
         return dict(row) if row else None
 
     def get_best_attempt(self, mission_id: str) -> dict | None:
-        """Get the attempt with the highest verification score."""
+        """Get the most recent attempt where the gate passed.
+
+        Used for rollback: when stall detection triggers, we reset to
+        the last known-good commit. Returns None if no attempt passed.
+        """
         attempts = self.get_attempts(mission_id)
-        best = None
-        best_score = -1.0
-        for a in attempts:
-            vr_raw = a.get("verification_result", "")
-            if not vr_raw:
-                continue
-            try:
-                vr = json.loads(vr_raw)
-                score = vr.get("score")
-                if score is not None and score > best_score:
-                    best_score = score
-                    best = a
-            except (json.JSONDecodeError, KeyError):
-                continue
-        return best
+        for a in reversed(attempts):
+            if a.get("verification_passed"):
+                return a
+        return None
 
     def get_mission_age_s(self, mission_id: str) -> float | None:
         """Get seconds elapsed since mission creation."""
