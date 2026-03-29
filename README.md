@@ -38,7 +38,8 @@ Interactive setup walks you through:
 
 1. **Agent backend** — choose `claude`, `codex`, or `gemini`, then pick auth method (API key or OAuth)
 2. **Planner backend** — choose independently, then pick auth method
-3. **Docker image** — checks Docker availability and pulls the agent image
+3. **Verifier backend** — defaults to planner settings, or configure separately
+4. **Docker image** — checks Docker availability and pulls the agent image
 
 This creates `~/.automission/config.toml`:
 
@@ -48,6 +49,10 @@ backend = "claude"
 model = "claude-sonnet-4-6"
 
 [planner]
+backend = "claude"
+model = "claude-sonnet-4-6"
+
+[verifier]
 backend = "claude"
 model = "claude-sonnet-4-6"
 

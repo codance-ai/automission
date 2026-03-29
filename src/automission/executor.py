@@ -126,6 +126,10 @@ def _execute_mission(
 
     backend_name = mission.get("backend", "claude")
     model = mission.get("model", "claude-sonnet-4-6")
+    backend_auth = mission.get("backend_auth", "api_key")
+    verifier_backend_name = mission.get("verifier_backend", "claude")
+    verifier_model = mission.get("verifier_model", "claude-sonnet-4-6")
+    verifier_auth = mission.get("verifier_auth", "api_key")
     docker_image = mission.get("docker_image", "ghcr.io/codance-ai/automission:latest")
     agents = mission.get("agents", 1)
     max_iterations = mission.get("max_iterations", 20)
@@ -134,14 +138,32 @@ def _execute_mission(
 
     # Create backend
     if backend_name == "claude":
-        agent_backend = ClaudeCodeBackend(docker_image=docker_image, model=model)
+        agent_backend = ClaudeCodeBackend(
+            docker_image=docker_image, model=model, auth_method=backend_auth
+        )
+    elif backend_name == "codex":
+        from automission.backend.codex import CodexBackend
+
+        agent_backend = CodexBackend(
+            docker_image=docker_image, model=model, auth_method=backend_auth
+        )
+    elif backend_name == "gemini":
+        from automission.backend.gemini import GeminiBackend
+
+        agent_backend = GeminiBackend(
+            docker_image=docker_image, model=model, auth_method=backend_auth
+        )
     else:
         logger.error("Unsupported backend: %s", backend_name)
         return MissionOutcome.FAILED
 
     # Create verifier
-    so_backend = create_structured_backend("claude", docker_image=docker_image)
-    verifier = Verifier(backend=so_backend, docker_image=docker_image)
+    so_backend = create_structured_backend(
+        verifier_backend_name, docker_image=docker_image, auth_method=verifier_auth
+    )
+    verifier = Verifier(
+        backend=so_backend, verifier_model=verifier_model, docker_image=docker_image
+    )
 
     # Build combined cancel flag: check cancel_event AND desired_state=="stopping" in DB
     def _combined_cancel() -> bool:

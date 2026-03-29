@@ -36,6 +36,10 @@ def create_mission(
     backend_name: str = "claude",
     docker_image: str = "ghcr.io/codance-ai/automission:latest",
     model: str = "claude-sonnet-4-6",
+    agent_auth: str = "api_key",
+    verifier_backend_name: str = "claude",
+    verifier_model: str = "claude-sonnet-4-6",
+    verifier_auth: str = "api_key",
 ) -> Path:
     """Create and initialize a mission workspace.
 
@@ -106,6 +110,10 @@ def create_mission(
         goal=goal,
         backend=backend_name,
         model=model,
+        backend_auth=agent_auth,
+        verifier_backend=verifier_backend_name,
+        verifier_model=verifier_model,
+        verifier_auth=verifier_auth,
         agents=agents,
         max_iterations=max_iterations,
         max_cost=max_cost,
