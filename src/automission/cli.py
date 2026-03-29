@@ -1125,6 +1125,9 @@ def _print_mission(mission: dict, ws: Path, ledger: Ledger) -> None:
                 for g in groups:
                     for c in g.criteria:
                         criterion_to_group[c.text] = g.name
+                # Initialize all groups to 0 so 0/N displays correctly
+                for g in groups:
+                    group_passed_counts[g.name] = 0
                 # Count passed per group
                 for c in vr.passed_criteria:
                     gname = criterion_to_group.get(c.criterion, "")
@@ -1268,9 +1271,8 @@ def logs(mission_id, last, verbose_logs, follow, json_output):
             return
 
         tailer = EventTailer(events_file)
-        stop = threading.Event()
         try:
-            for event in tailer.follow(stop_event=stop, poll_interval=0.5):
+            for event in tailer.follow(poll_interval=0.5):
                 _render_event(event)
         except KeyboardInterrupt:
             pass
