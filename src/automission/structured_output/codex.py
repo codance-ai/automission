@@ -25,6 +25,9 @@ def _openai_strict_schema(schema: dict) -> dict:
     1. ``additionalProperties: false`` on every object
     2. ``required`` must list ALL keys in ``properties``
 
+    Raises ``ValueError`` if an object has no ``properties`` (dynamic map) —
+    OpenAI strict mode cannot represent dynamic keys.
+
     Returns a deep copy — the original schema is not mutated.
     """
     schema = dict(schema)
@@ -36,6 +39,12 @@ def _openai_strict_schema(schema: dict) -> dict:
                 k: _openai_strict_schema(v)
                 for k, v in schema["properties"].items()
             }
+        else:
+            raise ValueError(
+                "OpenAI strict mode requires 'properties' on every object. "
+                "Found object without 'properties' (dynamic map). "
+                "Use an array of {key, value} objects instead."
+            )
     if "items" in schema:
         schema["items"] = _openai_strict_schema(schema["items"])
     return schema
