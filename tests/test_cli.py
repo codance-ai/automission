@@ -174,7 +174,10 @@ class TestRunModelFlag:
 
     def test_run_default_model(self, runner, fixture_dir):
         mocks = _mock_daemon_run()
-        with mocks[0] as mock_ws, mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0] as mock_ws, mocks[1], mocks[2], mocks[3], mocks[4], patch(
+            "automission.cli.load_config",
+            return_value=__import__("automission.config", fromlist=["AutomissionConfig"]).AutomissionConfig(),
+        ):
             result = runner.invoke(
                 cli,
                 [

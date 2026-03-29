@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from automission.docker import CONTAINER_HOME
+
 logger = logging.getLogger(__name__)
 
 CONFIG_DIR = Path.home() / ".automission"
@@ -196,8 +198,8 @@ def resolve_default(
 
 # Mapping: backend → (host_dir, container_dir) for OAuth token mounts
 _OAUTH_TOKEN_PATHS: dict[str, tuple[str, str]] = {
-    "codex": (str(Path.home() / ".codex"), "/root/.codex"),
-    "gemini": (str(Path.home() / ".gemini"), "/root/.gemini"),
+    "codex": (str(Path.home() / ".codex"), f"{CONTAINER_HOME}/.codex"),
+    "gemini": (str(Path.home() / ".gemini"), f"{CONTAINER_HOME}/.gemini"),
 }
 
 # Mapping: backend → login command

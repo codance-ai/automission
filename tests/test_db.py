@@ -419,6 +419,9 @@ class TestMergeLock:
     def test_thread_safety(self, tmp_path):
         """Two threads race for the merge lock; only one should win."""
         db_path = tmp_path / "thread_test.db"
+        # Initialize DB schema before threads to avoid WAL pragma race
+        init_db = Ledger(db_path)
+        init_db.close()
         results = []
 
         def try_acquire(agent_id):

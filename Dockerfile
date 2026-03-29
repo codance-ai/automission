@@ -29,6 +29,9 @@ RUN npm install -g @openai/codex
 # Install Gemini CLI
 RUN npm install -g @google/gemini-cli
 
+# Pre-create CLI config dirs so tools don't fail on first write
+RUN mkdir -p $HOME/.gemini $HOME/.codex
+
 # Install pytest (for verify.sh that runs tests)
 RUN pip install --no-cache-dir --user pytest
 
