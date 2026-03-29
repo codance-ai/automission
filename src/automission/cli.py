@@ -11,14 +11,8 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
-
 import click
 import questionary
-
-if TYPE_CHECKING:
-    from automission.backend.protocol import AgentBackend
-    from automission.verifier import Verifier
 
 from automission.config import (
     CONFIG_PATH,
