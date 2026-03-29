@@ -78,6 +78,7 @@ def _find_mission_workspace(mission_id: str) -> Path | None:
 
 
 @click.group()
+@click.version_option(package_name="automission")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
 def cli(verbose: bool) -> None:
     """automission — Multi-agent autonomous mission execution."""
