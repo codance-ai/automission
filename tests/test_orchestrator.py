@@ -10,6 +10,7 @@ from automission.backend.mock import MockBackend
 from automission.db import Ledger
 from automission.orchestrator import run_multi_agent
 from automission.verifier import Verifier
+from conftest import MockCriticBackend
 from automission.workspace import create_mission
 
 
@@ -117,7 +118,7 @@ class TestRunMultiAgent:
             init_files_dir=fixture_dir / "workspace",
             agents=2,
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         outcome = run_multi_agent(
             mission_id="orch-001",
@@ -162,7 +163,7 @@ class TestRunMultiAgent:
             init_files_dir=fixture_dir / "workspace",
             agents=2,
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         call_count = 0
         lock = threading.Lock()
@@ -190,7 +191,7 @@ class TestRunMultiAgent:
     def test_single_agent_completes(self, orch_workspace):
         """Single agent mode should work correctly through orchestrator."""
         ws, backend = orch_workspace
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         outcome = run_multi_agent(
             mission_id="orch-test",
@@ -229,7 +230,7 @@ class TestRunMultiAgent:
             init_files_dir=fixture_dir / "workspace",
             agents=2,
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         run_multi_agent(
             mission_id="orch-cleanup",
@@ -273,7 +274,7 @@ class TestRunMultiAgent:
             agents=2,
             max_iterations=3,
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         outcome = run_multi_agent(
             mission_id="orch-limit",

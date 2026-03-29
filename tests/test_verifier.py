@@ -73,28 +73,6 @@ class TestVerifyShGate:
 
 
 class TestVerifier:
-    def test_gate_pass_no_critic(self, workspace, sample_groups):
-        script = workspace / "verify.sh"
-        script.write_text("#!/bin/bash\nexit 0\n")
-        script.chmod(0o755)
-
-        verifier = Verifier()
-        result = verifier.evaluate(workspace, script, sample_groups)
-
-        assert result.contract_passed is True
-        assert result.gate_source == "script"
-
-    def test_gate_fail_no_critic(self, workspace, sample_groups):
-        script = workspace / "verify.sh"
-        script.write_text("#!/bin/bash\necho 'test_add FAILED'\nexit 1\n")
-        script.chmod(0o755)
-
-        verifier = Verifier()
-        result = verifier.evaluate(workspace, script, sample_groups)
-
-        assert result.contract_passed is False
-        assert result.gate_source == "script"
-
     def test_with_mock_critic(self, workspace, sample_groups):
         script = workspace / "verify.sh"
         script.write_text("#!/bin/bash\necho 'test_add FAILED'\nexit 1\n")
@@ -182,10 +160,10 @@ class TestVerifier:
         assert result.group_statuses == {"basic": False}
         assert isinstance(result.group_statuses, dict)
 
-    def test_malformed_group_statuses_falls_back_to_basic(
+    def test_malformed_group_statuses_returns_empty_critic(
         self, workspace, sample_groups
     ):
-        """Malformed array entries in group_statuses trigger basic_critic fallback."""
+        """Malformed array entries in group_statuses return empty critic (no fabricated data)."""
         script = workspace / "verify.sh"
         script.write_text("#!/bin/bash\nexit 1\n")
         script.chmod(0o755)
@@ -204,11 +182,11 @@ class TestVerifier:
         verifier = Verifier(backend=backend, verifier_model="claude-sonnet-4-6")
         result = verifier.evaluate(workspace, script, sample_groups)
 
-        # Should fall back to basic critic instead of crashing
-        assert result.reason == "Gate verification failed."
-        assert isinstance(result.group_statuses, dict)
+        # Should return empty critic result instead of crashing
+        assert result.group_statuses == {}
+        assert "Critic error" in result.reason
 
-    def test_critic_cli_failure_falls_back_to_basic(self, workspace, sample_groups):
+    def test_critic_cli_failure_returns_empty_critic(self, workspace, sample_groups):
         script = workspace / "verify.sh"
         script.write_text("#!/bin/bash\nexit 1\n")
         script.chmod(0o755)
@@ -220,6 +198,7 @@ class TestVerifier:
         verifier = Verifier(backend=backend, verifier_model="claude-sonnet-4-6")
         result = verifier.evaluate(workspace, script, sample_groups)
 
-        # Should fall back to basic critic
+        # Should return empty critic, not fabricated data
         assert result.contract_passed is False
-        assert result.reason == "Gate verification failed."
+        assert result.group_statuses == {}
+        assert "Critic error" in result.reason

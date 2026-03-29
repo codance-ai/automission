@@ -173,7 +173,7 @@ class Verifier:
 
     def __init__(
         self,
-        backend: StructuredOutputBackend | None = None,
+        backend: StructuredOutputBackend,
         verifier_model: str = "claude-sonnet-4-6",
         docker_image: str = "ghcr.io/codance-ai/automission:latest",
     ):
@@ -218,10 +218,7 @@ class Verifier:
             metrics = jo.get("metrics", {})
 
         # ── Critic ──
-        if self.backend is not None:
-            critic = self._run_critic(gate, acceptance_groups)
-        else:
-            critic = self._basic_critic(gate_passed, acceptance_groups)
+        critic = self._run_critic(gate, acceptance_groups)
 
         # ── Combine ──
         contract_passed = gate_passed
@@ -293,39 +290,24 @@ Be specific about what passed and what failed. Provide an actionable suggestion 
                     }
                 except (KeyError, TypeError) as e:
                     logger.warning("Malformed group_statuses from critic: %s", e)
-                    return self._basic_critic(gate["passed"], groups)
+                    return self._empty_critic(str(e))
             return result
         except CLIResponseError as e:
             logger.error("Critic CLI call failed: %s", e)
-            return self._basic_critic(gate["passed"], groups)
+            return self._empty_critic(str(e))
 
-    def _basic_critic(
-        self, gate_passed: bool, groups: list[AcceptanceGroup]
-    ) -> dict[str, Any]:
-        """Fallback critic when no LLM client is available."""
-        if gate_passed:
-            return {
-                "passed_criteria": [
-                    {"criterion": c.text, "passed": True, "detail": "Gate passed"}
-                    for g in groups
-                    for c in g.criteria
-                ],
-                "failed_criteria": [],
-                "group_statuses": {g.id: True for g in groups},
-                "suggestion": "",
-                "reason": "All gate checks passed.",
-                "score": 1.0,
-            }
-        else:
-            return {
-                "passed_criteria": [],
-                "failed_criteria": [
-                    {"criterion": c.text, "passed": False, "detail": "Gate failed"}
-                    for g in groups
-                    for c in g.criteria
-                ],
-                "group_statuses": {g.id: False for g in groups},
-                "suggestion": "Review the test output and fix failing tests.",
-                "reason": "Gate verification failed.",
-                "score": 0.0,
-            }
+    @staticmethod
+    def _empty_critic(error: str) -> dict[str, Any]:
+        """Return empty critic result when LLM call fails.
+
+        Does not fabricate group statuses — downstream code will see no
+        group progress for this attempt and retry.
+        """
+        return {
+            "passed_criteria": [],
+            "failed_criteria": [],
+            "group_statuses": {},
+            "suggestion": "Critic evaluation failed, retry.",
+            "reason": f"Critic error: {error}",
+            "score": None,
+        }

@@ -10,6 +10,7 @@ from automission.db import Ledger
 from automission.loop import run_loop, run_single_iteration
 from automission.orchestrator import run_multi_agent
 from automission.verifier import Verifier
+from conftest import MockCriticBackend
 from automission.workspace import create_mission
 
 
@@ -68,7 +69,7 @@ class TestE2EPassingMission:
         assert (ws / "src" / "tests" / "test_calc.py").exists()
 
         # 4. Run single iteration
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         result = run_single_iteration(
             mission_id="e2e-001",
             workdir=ws,
@@ -112,7 +113,7 @@ class TestE2EPassingMission:
             init_files_dir=fixture_dir / "workspace",
         )
 
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         run_single_iteration(
             mission_id="e2e-002",
             workdir=ws,
@@ -147,7 +148,7 @@ class TestE2EFailingMission:
             init_files_dir=fixture_dir / "workspace",
         )
 
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         result = run_single_iteration(
             mission_id="e2e-fail",
             workdir=ws,
@@ -239,7 +240,7 @@ class TestE2EMultiIteration:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         outcome = run_loop(
             mission_id="e2e-loop",
@@ -281,7 +282,7 @@ class TestE2EMultiIteration:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         run_loop(
             mission_id="e2e-feedback",
@@ -311,7 +312,7 @@ class TestE2EMultiIteration:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         outcome = run_loop(
             mission_id="e2e-breaker",
@@ -354,7 +355,7 @@ class TestE2EMultiAgent:
             ["git", "commit", "-m", "fix verify.sh"], cwd=ws, capture_output=True
         )
 
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         outcome = run_multi_agent(
             mission_id="e2e-multi",

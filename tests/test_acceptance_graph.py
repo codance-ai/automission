@@ -364,8 +364,9 @@ class TestSingleAgentFrontierLoop:
         from automission.executor import _run_single_agent_frontier
         from automission.events import EventWriter
         from automission.verifier import Verifier
+        from conftest import MockCriticBackend
 
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         with EventWriter(ws / "events.jsonl") as ew:
             outcome = _run_single_agent_frontier(
                 mission_id="dag-001",
@@ -416,8 +417,9 @@ class TestSingleAgentFrontierLoop:
         from automission.executor import _run_single_agent_frontier
         from automission.events import EventWriter
         from automission.verifier import Verifier
+        from conftest import MockCriticBackend
 
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         with EventWriter(ws / "events.jsonl") as ew:
             _run_single_agent_frontier(
                 mission_id="dag-002",
