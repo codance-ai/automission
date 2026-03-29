@@ -238,9 +238,7 @@ def _agent_worker(
 
             # Sync workspace from main
             if not sync_from_main(worktree_dir):
-                logger.warning(
-                    "%s: sync from main failed, releasing claim", agent_id
-                )
+                logger.warning("%s: sync from main failed, releasing claim", agent_id)
                 ledger.release_claim(claim_id, "failed")
                 continue
 
