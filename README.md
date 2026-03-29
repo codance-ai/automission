@@ -226,7 +226,7 @@ API key lookup order (first match wins):
 | codex | `CODEX_API_KEY` | `keys.codex` |
 | gemini | `GEMINI_API_KEY` | `keys.gemini` |
 
-**OAuth**: Codex and Gemini support OAuth login. Run `automission init` and choose `oauth` when prompted — the CLI will execute `codex login` or `gemini login` and mount the token directory into Docker containers automatically.
+**OAuth**: Codex and Gemini support OAuth login. Run `automission init` and choose `oauth` when prompted — the CLI will trigger the OAuth flow for the selected backend and mount the token directory into Docker containers automatically.
 
 ## Key Design Decisions
 

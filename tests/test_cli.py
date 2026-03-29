@@ -393,33 +393,46 @@ class TestNewFlags:
 class TestInitInteractiveFlow:
     """Interactive init flow: choose backends, auth, write config, pull Docker."""
 
+    @staticmethod
+    def _mock_select(answers: list[str]):
+        """Return a patch that makes questionary.select return *answers* in order."""
+        it = iter(answers)
+
+        def fake_select(*args, **kwargs):
+            mock_question = MagicMock()
+            mock_question.ask.return_value = next(it)
+            return mock_question
+
+        return patch("automission.cli.questionary.select", side_effect=fake_select)
+
     def test_claude_defaults_no_auth_prompt(self, runner, tmp_path):
         """Choosing claude for both backends skips auth prompts entirely."""
         config_path = tmp_path / "config.toml"
-        # Input: agent=claude (default), planner=claude (default)
+        # Flow: backend → model → (auth skipped for claude) × 2
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
+            self._mock_select(["claude", "claude-sonnet-4-6", "claude", "claude-sonnet-4-6"]),
         ):
             mock_run.side_effect = FileNotFoundError()  # docker not available
-            result = runner.invoke(cli, ["init"], input="claude\nclaude\n")
+            result = runner.invoke(cli, ["init"])
         assert result.exit_code == 0
-        assert "authentication" not in result.output.lower()
         assert config_path.exists()
 
     def test_codex_agent_oauth_runs_login(self, runner, tmp_path):
         """Selecting codex + oauth triggers 'codex login'."""
         config_path = tmp_path / "config.toml"
-        # Input: agent=codex, auth=oauth, planner=claude (default)
+        # Flow: backend=codex → model → auth=oauth, backend=claude → model
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
+            self._mock_select(["codex", "gpt-5.4", "oauth", "claude", "claude-sonnet-4-6"]),
         ):
             mock_run.side_effect = [
                 MagicMock(returncode=0),  # codex login
                 FileNotFoundError(),  # docker version
             ]
-            result = runner.invoke(cli, ["init"], input="codex\noauth\nclaude\n")
+            result = runner.invoke(cli, ["init"])
         assert result.exit_code == 0
         assert "logged in" in result.output.lower()
 
@@ -429,25 +442,27 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
+            self._mock_select(["codex", "gpt-5.4", "api_key", "claude", "claude-sonnet-4-6"]),
         ):
             mock_run.side_effect = FileNotFoundError()  # docker not available
-            result = runner.invoke(cli, ["init"], input="codex\napi_key\nclaude\n")
+            result = runner.invoke(cli, ["init"])
         assert result.exit_code == 0
         assert "logged in" not in result.output.lower()
 
     def test_gemini_planner_oauth(self, runner, tmp_path):
-        """Selecting gemini as planner + oauth triggers 'gemini login'."""
+        """Selecting gemini as planner + oauth triggers gemini OAuth flow."""
         config_path = tmp_path / "config.toml"
-        # Input: agent=claude, planner=gemini, auth=oauth
+        # Flow: backend=claude → model, backend=gemini → model → auth=oauth
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
+            self._mock_select(["claude", "claude-sonnet-4-6", "gemini", "gemini-3.1-pro-preview", "oauth"]),
         ):
             mock_run.side_effect = [
-                MagicMock(returncode=0),  # gemini login
+                MagicMock(returncode=0),  # gemini oauth
                 FileNotFoundError(),  # docker version
             ]
-            result = runner.invoke(cli, ["init"], input="claude\ngemini\noauth\n")
+            result = runner.invoke(cli, ["init"])
         assert result.exit_code == 0
         assert "gemini" in result.output.lower()
 
@@ -457,30 +472,32 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
+            self._mock_select(["codex", "gpt-5.4", "oauth", "claude", "claude-sonnet-4-6"]),
         ):
             mock_run.side_effect = FileNotFoundError()
-            result = runner.invoke(cli, ["init"], input="codex\noauth\nclaude\n")
+            result = runner.invoke(cli, ["init"])
         assert result.exit_code == 0
         assert "not found" in result.output.lower()
 
     def test_config_reflects_choices(self, runner, tmp_path):
-        """Generated config.toml should reflect the user's backend/auth choices."""
+        """Generated config.toml should reflect the user's backend/auth/model choices."""
         config_path = tmp_path / "config.toml"
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
+            self._mock_select(["codex", "gpt-5.4-mini", "api_key", "gemini", "gemini-3-flash-preview", "api_key"]),
         ):
             mock_run.side_effect = FileNotFoundError()
-            result = runner.invoke(
-                cli, ["init"], input="codex\napi_key\ngemini\napi_key\n"
-            )
+            result = runner.invoke(cli, ["init"])
         assert result.exit_code == 0
         import tomllib
 
         data = tomllib.loads(config_path.read_text())
         assert data["defaults"]["backend"] == "codex"
+        assert data["defaults"]["model"] == "gpt-5.4-mini"
         assert data["defaults"]["auth"] == "api_key"
         assert data["planner"]["backend"] == "gemini"
+        assert data["planner"]["model"] == "gemini-3-flash-preview"
         assert data["planner"]["auth"] == "api_key"
 
 
@@ -745,17 +762,29 @@ class TestEnsureDockerBeforePlanner:
 
 
 class TestInitCommand:
-    # Default input: accept claude defaults for both backends
-    _DEFAULT_INPUT = "claude\nclaude\n"
+    @staticmethod
+    def _mock_select(answers: list[str]):
+        """Return a patch that makes questionary.select return *answers* in order."""
+        it = iter(answers)
+
+        def fake_select(*args, **kwargs):
+            mock_question = MagicMock()
+            mock_question.ask.return_value = next(it)
+            return mock_question
+
+        return patch("automission.cli.questionary.select", side_effect=fake_select)
+
+    _DEFAULT_ANSWERS = ["claude", "claude-sonnet-4-6", "claude", "claude-sonnet-4-6"]
 
     def test_init_creates_config(self, runner, tmp_path):
         config_path = tmp_path / "config.toml"
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
+            self._mock_select(self._DEFAULT_ANSWERS),
         ):
             mock_run.side_effect = FileNotFoundError()  # docker not available
-            result = runner.invoke(cli, ["init"], input=self._DEFAULT_INPUT)
+            result = runner.invoke(cli, ["init"])
         assert result.exit_code == 0
         assert config_path.exists()
         assert "created config" in result.output.lower()
@@ -774,9 +803,10 @@ class TestInitCommand:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
+            self._mock_select(self._DEFAULT_ANSWERS),
         ):
             mock_run.side_effect = FileNotFoundError()
-            result = runner.invoke(cli, ["init", "--force"], input=self._DEFAULT_INPUT)
+            result = runner.invoke(cli, ["init", "--force"])
         assert result.exit_code == 0
         assert config_path.exists()
 
@@ -785,9 +815,10 @@ class TestInitCommand:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
+            self._mock_select(self._DEFAULT_ANSWERS),
         ):
             # Docker available, image exists
             mock_run.return_value = MagicMock(returncode=0)
-            result = runner.invoke(cli, ["init"], input=self._DEFAULT_INPUT)
+            result = runner.invoke(cli, ["init"])
         assert result.exit_code == 0
         assert "docker: available" in result.output.lower()

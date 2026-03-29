@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 import click
+import questionary
 
 if TYPE_CHECKING:
     from automission.backend.protocol import AgentBackend
@@ -97,21 +98,27 @@ def init(force: bool) -> None:
 
     # ── Step 1: Agent backend ──
     click.echo("Step 1: Agent backend")
-    agent_backend = click.prompt(
-        "  Choose agent backend",
-        type=click.Choice(backends, case_sensitive=False),
+    agent_backend = questionary.select(
+        "  Choose agent backend:",
+        choices=backends,
         default="claude",
-    )
+    ).ask()
+    if agent_backend is None:
+        raise SystemExit(0)
+    agent_model = _prompt_model(agent_backend)
     agent_auth = _prompt_auth(agent_backend)
 
     # ── Step 2: Planner backend ──
     click.echo()
     click.echo("Step 2: Planner backend")
-    planner_backend = click.prompt(
-        "  Choose planner backend",
-        type=click.Choice(backends, case_sensitive=False),
+    planner_backend = questionary.select(
+        "  Choose planner backend:",
+        choices=backends,
         default="claude",
-    )
+    ).ask()
+    if planner_backend is None:
+        raise SystemExit(0)
+    planner_model = _prompt_model(planner_backend)
     planner_auth = _prompt_auth(planner_backend)
 
     # ── Step 3: Write config ──
@@ -121,8 +128,10 @@ def init(force: bool) -> None:
         CONFIG_PATH,
         agent_backend=agent_backend,
         agent_auth=agent_auth,
+        agent_model=agent_model,
         planner_backend=planner_backend,
         planner_auth=planner_auth,
+        planner_model=planner_model,
     )
     action = "Overwrote" if force and already_existed else "Created"
     click.echo(f"{action} config: {CONFIG_PATH} (mode 600)")
@@ -176,6 +185,28 @@ def init(force: bool) -> None:
                 click.echo("  Skipped image pull.")
 
 
+def _prompt_model(backend: str) -> str:
+    """Prompt user to choose a model for the given backend."""
+    from automission.config import RECOMMENDED_MODELS
+
+    models = RECOMMENDED_MODELS.get(backend, [])
+    if not models:
+        return ""
+    choices = models + ["Other (type manually)"]
+    model = questionary.select(
+        f"  Model for {backend}:",
+        choices=choices,
+        default=models[0],
+    ).ask()
+    if model is None:
+        raise SystemExit(0)
+    if model == "Other (type manually)":
+        model = questionary.text("  Enter model name:").ask()
+        if not model:
+            raise SystemExit(0)
+    return model
+
+
 def _prompt_auth(backend: str) -> str:
     """Prompt for authentication method. Runs OAuth login if chosen.
 
@@ -184,11 +215,13 @@ def _prompt_auth(backend: str) -> str:
     if backend == "claude":
         return "api_key"
 
-    auth = click.prompt(
-        f"  Authentication for {backend}",
-        type=click.Choice(["api_key", "oauth"], case_sensitive=False),
+    auth = questionary.select(
+        f"  Authentication for {backend}:",
+        choices=["api_key", "oauth"],
         default="api_key",
-    )
+    ).ask()
+    if auth is None:
+        raise SystemExit(0)
     if auth == "oauth":
         _run_oauth_login(backend)
     return auth
@@ -203,7 +236,9 @@ def _run_oauth_login(backend: str) -> None:
         return
     click.echo(f"  Running: {' '.join(login_cmd)}")
     try:
-        login_result = subprocess.run(login_cmd, timeout=120)
+        login_result = subprocess.run(
+            login_cmd, timeout=120, stdout=subprocess.DEVNULL
+        )
         if login_result.returncode == 0:
             click.secho(f"  {backend} OAuth: logged in", fg="green")
         else:

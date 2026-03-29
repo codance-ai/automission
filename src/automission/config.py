@@ -22,14 +22,50 @@ _KEY_MAP: dict[str, tuple[str, str]] = {
     "gemini": ("GEMINI_API_KEY", "gemini"),
 }
 
-DEFAULT_CONFIG_TOML = """\
+# Recommended models per backend (first entry is the default).
+RECOMMENDED_MODELS: dict[str, list[str]] = {
+    "claude": [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+        "claude-haiku-4-5",
+    ],
+    "codex": [
+        "gpt-5.4",
+        "gpt-5.4-pro",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.2",
+    ],
+    "gemini": [
+        "gemini-3.1-pro-preview",
+        "gemini-3-flash-preview",
+        "gemini-3.1-flash-lite-preview",
+    ],
+}
+
+
+def default_model(backend: str) -> str:
+    """Return the default model for a backend."""
+    return RECOMMENDED_MODELS.get(backend, [""])[0]
+
+
+def _build_default_config(
+    agent_backend: str = "claude",
+    agent_model: str = "",
+    planner_backend: str = "claude",
+    planner_model: str = "",
+) -> str:
+    """Build the default config TOML with the correct models for chosen backends."""
+    am = agent_model or default_model(agent_backend)
+    pm = planner_model or default_model(planner_backend)
+    return f"""\
 # automission configuration
 # Docs: https://github.com/codance-ai/automission
 
 [defaults]
 agents = 2
-backend = "claude"
-model = "claude-sonnet-4-6"
+backend = "{agent_backend}"
+model = "{am}"
 max_cost = 10.0
 timeout = 3600
 auth = "api_key"              # "api_key" or "oauth"
@@ -42,16 +78,20 @@ auth = "api_key"              # "api_key" or "oauth"
 
 [planner]
 enabled = true
-backend = "claude"
-model = "claude-sonnet-4-6"
+backend = "{planner_backend}"
+model = "{pm}"
 auth = "api_key"
 
 [verifier]
-model = "claude-sonnet-4-6"
+model = "{am}"
 
 [docker]
 image = "ghcr.io/codance-ai/automission:latest"
 """
+
+
+# Keep a static fallback for code that references DEFAULT_CONFIG_TOML directly.
+DEFAULT_CONFIG_TOML = _build_default_config()
 
 
 @dataclass
@@ -157,7 +197,7 @@ _OAUTH_TOKEN_PATHS: dict[str, tuple[str, str]] = {
 # Mapping: backend → login command
 _OAUTH_LOGIN_CMDS: dict[str, list[str]] = {
     "codex": ["codex", "login"],
-    "gemini": ["gemini", "login"],
+    "gemini": ["gemini", "-p", "hello", "--output-format", "json"],
 }
 
 
@@ -216,8 +256,10 @@ def generate_default_config(
     *,
     agent_backend: str = "claude",
     agent_auth: str = "api_key",
+    agent_model: str = "",
     planner_backend: str = "claude",
     planner_auth: str = "api_key",
+    planner_model: str = "",
 ) -> Path:
     """Generate config.toml with secure permissions.
 
@@ -226,10 +268,14 @@ def generate_default_config(
     path = path or CONFIG_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    data = tomllib.loads(DEFAULT_CONFIG_TOML)
-    data["defaults"]["backend"] = agent_backend
+    cfg_toml = _build_default_config(
+        agent_backend=agent_backend,
+        agent_model=agent_model,
+        planner_backend=planner_backend,
+        planner_model=planner_model,
+    )
+    data = tomllib.loads(cfg_toml)
     data["defaults"]["auth"] = agent_auth
-    data["planner"]["backend"] = planner_backend
     data["planner"]["auth"] = planner_auth
 
     lines = [
