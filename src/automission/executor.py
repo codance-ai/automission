@@ -100,10 +100,11 @@ def _execute_mission(
     Returns a MissionOutcome string.
     """
     from automission.backend.claude import ClaudeCodeBackend
+    from automission.critic import Critic
+    from automission.harness import Harness
     from automission.models import MissionOutcome
     from automission.orchestrator import run_multi_agent
     from automission.structured_output.factory import create_structured_backend
-    from automission.verifier import Verifier
 
     # Read mission config from DB
     with Ledger(workspace_dir / "mission.db") as ledger:
@@ -146,13 +147,12 @@ def _execute_mission(
         logger.error("Unsupported backend: %s", backend_name)
         return MissionOutcome.FAILED
 
-    # Create verifier
+    # Create harness + critic
+    harness = Harness(docker_image=docker_image)
     so_backend = create_structured_backend(
         verifier_backend_name, docker_image=docker_image, auth_method=verifier_auth
     )
-    verifier = Verifier(
-        backend=so_backend, verifier_model=verifier_model, docker_image=docker_image
-    )
+    critic = Critic(backend=so_backend, model=verifier_model)
 
     # Build combined cancel flag: check cancel_event AND desired_state=="stopping" in DB
     def _combined_cancel() -> bool:
@@ -173,7 +173,8 @@ def _execute_mission(
             mission_dir=workspace_dir,
             n_agents=agents,
             backend=agent_backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=max_iterations,
             max_cost=max_cost,
             timeout=timeout,
@@ -185,7 +186,8 @@ def _execute_mission(
             mission_id=mission_id,
             ws=workspace_dir,
             backend=agent_backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=max_iterations,
             max_cost=max_cost,
             timeout=timeout,
@@ -200,7 +202,8 @@ def _run_single_agent_frontier(
     mission_id: str,
     ws: Path,
     backend,
-    verifier,
+    harness,
+    critic,
     max_iterations: int,
     max_cost: float,
     timeout: int,
@@ -283,7 +286,8 @@ def _run_single_agent_frontier(
                 mission_id=mission_id,
                 workdir=ws,
                 backend=backend,
-                verifier=verifier,
+                harness=harness,
+                critic=critic,
                 max_iterations=mission["total_attempts"] + per_group_iters,
                 max_cost=max_cost,
                 timeout=timeout,

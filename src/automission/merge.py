@@ -8,7 +8,7 @@ from pathlib import Path
 
 from automission.db import Ledger
 from automission.models import MergeResult
-from automission.verifier import run_verify_sh
+from automission.harness import run_verify_sh
 from automission.worktree import sync_from_main
 
 logger = logging.getLogger(__name__)
