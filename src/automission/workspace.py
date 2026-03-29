@@ -16,6 +16,22 @@ from automission.skills import load_skill_contents, vendor_skills
 
 DEFAULT_BASE_DIR = Path.home() / ".automission" / "missions"
 
+_GITIGNORE = """\
+__pycache__/
+*.pyc
+*.pyo
+node_modules/
+.pytest_cache/
+.mypy_cache/
+dist/
+build/
+*.egg-info/
+.env
+.venv/
+venv/
+.DS_Store
+"""
+
 
 def create_mission(
     mission_id: str | None = None,
@@ -71,23 +87,26 @@ def create_mission(
         capture_output=True,
     )
 
-    # 2. Copy initial files from fixture/template
+    # 2. Default .gitignore (user's init_files_dir can override)
+    (workspace_dir / ".gitignore").write_text(_GITIGNORE)
+
+    # 3. Copy initial files from fixture/template
     if init_files_dir and init_files_dir.exists():
         _copy_tree(init_files_dir, workspace_dir)
 
-    # 3. Write MISSION.md (content wins over default)
+    # 4. Write MISSION.md (content wins over default)
     if mission_content:
         (workspace_dir / "MISSION.md").write_text(mission_content)
     else:
         (workspace_dir / "MISSION.md").write_text(f"# Mission\n\n{goal}\n")
 
-    # 4. Write ACCEPTANCE.md (content wins over path)
+    # 5. Write ACCEPTANCE.md (content wins over path)
     if acceptance_content:
         (workspace_dir / "ACCEPTANCE.md").write_text(acceptance_content)
     elif acceptance_path and acceptance_path.exists():
         shutil.copy2(acceptance_path, workspace_dir / "ACCEPTANCE.md")
 
-    # 5. Write verify.sh (content wins over path)
+    # 6. Write verify.sh (content wins over path)
     if verify_content:
         dest = workspace_dir / "verify.sh"
         dest.write_text(verify_content)
@@ -97,13 +116,13 @@ def create_mission(
         shutil.copy2(verify_path, dest)
         dest.chmod(dest.stat().st_mode | stat.S_IEXEC)
 
-    # 6. Vendor skills
+    # 7. Vendor skills
     skill_contents: list[str] = []
     if skill_sources:
         vendor_skills(skill_sources, workspace_dir / "skills")
         skill_contents = load_skill_contents(workspace_dir / "skills")
 
-    # 7. Create SQLite DB and populate
+    # 8. Create SQLite DB and populate
     ledger = Ledger(workspace_dir / "mission.db")
     ledger.create_mission(
         mission_id=mission_id,
@@ -121,7 +140,7 @@ def create_mission(
         docker_image=docker_image,
     )
 
-    # 8. Parse acceptance and store groups
+    # 9. Parse acceptance and store groups
     if (workspace_dir / "ACCEPTANCE.md").exists():
         acceptance_text = (workspace_dir / "ACCEPTANCE.md").read_text()
         groups = parse_acceptance_md(acceptance_text)
@@ -129,7 +148,7 @@ def create_mission(
 
     ledger.close()
 
-    # 9. Backend: write AUTOMISSION.md + native instruction file
+    # 10. Backend: write AUTOMISSION.md + native instruction file
     if backend is not None:
         stable = StableContext(
             goal=goal,
@@ -138,7 +157,7 @@ def create_mission(
         )
         backend.prepare_workspace(workspace_dir, stable)
 
-    # 10. Baseline commit
+    # 11. Baseline commit
     subprocess.run(["git", "add", "-A"], cwd=workspace_dir, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "automission: baseline"],
