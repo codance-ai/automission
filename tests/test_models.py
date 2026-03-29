@@ -4,45 +4,45 @@ from automission.models import (
     AcceptanceGroup,
     AttemptResult,
     Criterion,
-    CriterionResult,
+    CriticResult,
+    HarnessResult,
     PlanCriterion,
     PlanDraft,
     PlanGroup,
     SkillManifest,
     SkillManifestEntry,
     StableContext,
-    VerifierResult,
+    VerificationResult,
+    VerificationSurface,
 )
 
 
-def test_verifier_result_json_roundtrip():
-    original = VerifierResult(
-        contract_passed=False,
-        mission_passed=False,
-        gate_source="script",
-        score=0.6,
-        scores={"completeness": 0.8},
-        metrics={"test_pass_rate": "6/10"},
-        passed_criteria=[
-            CriterionResult(criterion="API exists", passed=True, detail="ok")
-        ],
-        failed_criteria=[
-            CriterionResult(criterion="validation", passed=False, detail="missing")
-        ],
-        group_statuses={"auth": True, "api": False},
-        suggestion="Add validation",
-        reason="Mostly working",
+def test_verification_result_json_roundtrip():
+    original = VerificationResult(
+        harness=HarnessResult(
+            passed=False,
+            exit_code=1,
+            stdout="6/10 tests passed",
+            stderr="AssertionError",
+            json_output={"score": 0.6, "metrics": {"test_pass_rate": "6/10"}},
+        ),
+        critic=CriticResult(
+            summary="Mostly working",
+            root_cause="Validation missing",
+            next_actions=["Add validation"],
+            blockers=[],
+            group_statuses={"auth": True, "api": False},
+        ),
     )
-    restored = VerifierResult.from_json(original.to_json())
-    assert restored.contract_passed == original.contract_passed
+    restored = VerificationResult.from_json(original.to_json())
+    assert restored.gate_passed == original.gate_passed
     assert restored.mission_passed == original.mission_passed
-    assert restored.gate_source == original.gate_source
-    assert restored.score == original.score
-    assert restored.scores == original.scores
-    assert len(restored.passed_criteria) == 1
-    assert restored.passed_criteria[0].criterion == "API exists"
-    assert len(restored.failed_criteria) == 1
-    assert restored.suggestion == "Add validation"
+    assert restored.harness.passed is False
+    assert restored.harness.exit_code == 1
+    assert restored.harness.stdout == "6/10 tests passed"
+    assert restored.critic.summary == "Mostly working"
+    assert restored.critic.root_cause == "Validation missing"
+    assert restored.critic.next_actions == ["Add validation"]
     assert restored.group_statuses == {"auth": True, "api": False}
 
 
@@ -85,22 +85,27 @@ def test_skill_manifest_json():
 def test_attempt_contract_defaults():
     from automission.models import AttemptContract
 
-    c = AttemptContract(scope="Fix divide function", done_criteria=["divide works"])
-    assert c.scope == "Fix divide function"
-    assert c.done_criteria == ["divide works"]
-    assert c.non_goals == []
+    c = AttemptContract(focus_groups=["divide_ops"])
+    assert c.focus_groups == ["divide_ops"]
+    assert c.preserve_groups == []
+    assert c.evidence == []
+    assert c.blockers == []
+    assert c.next_actions == []
 
 
 def test_attempt_contract_full():
     from automission.models import AttemptContract
 
     c = AttemptContract(
-        scope="Fix divide function",
-        done_criteria=["divide(6,3) returns 2", "divide(0,5) returns 0"],
-        non_goals=["Do not modify add, subtract, multiply"],
+        focus_groups=["divide_ops"],
+        preserve_groups=["add_ops", "subtract_ops"],
+        evidence=["AssertionError: divide(6,3) expected 2"],
+        blockers=[],
+        next_actions=["Implement divide function"],
     )
-    assert len(c.done_criteria) == 2
-    assert len(c.non_goals) == 1
+    assert len(c.focus_groups) == 1
+    assert len(c.preserve_groups) == 2
+    assert len(c.next_actions) == 1
 
 
 def test_mission_outcome_values():
@@ -176,10 +181,14 @@ class TestPlanDraft:
             mission_summary="Build a TODO API",
             constraints=["JSON responses"],
             groups=[],
-            verify_command="pytest tests/ -v",
+            verification_surface=VerificationSurface(
+                runner="pytest", targets=["tests/"], options="-v"
+            ),
             assumptions=["Python"],
         )
-        assert draft.verify_command == "pytest tests/ -v"
+        assert draft.verification_surface.runner == "pytest"
+        assert draft.verification_surface.targets == ["tests/"]
+        assert draft.verification_surface.options == "-v"
         assert draft.assumptions == ["Python"]
 
     def test_plan_group_default_depends_on(self):

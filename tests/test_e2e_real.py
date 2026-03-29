@@ -22,7 +22,8 @@ import pytest
 from automission.db import Ledger
 from automission.loop import run_loop
 from automission.orchestrator import run_multi_agent
-from automission.verifier import Verifier
+from automission.critic import Critic
+from automission.harness import Harness
 from conftest import MockCriticBackend
 from automission.workspace import create_mission
 
@@ -139,12 +140,14 @@ class TestSingleAgentCalculator:
             docker_image=DOCKER_IMAGE,
         )
 
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id=f"real-calc-{backend_name}",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=5,
             max_cost=5.0,
             timeout=600,
@@ -175,12 +178,8 @@ class TestPlannerFlow:
     @pytest.mark.parametrize("backend_name", PLANNER_BACKENDS)
     def test_planner_generates_and_agent_completes(self, tmp_path, backend_name):
         """Full flow: goal → Planner → acceptance → agent → verify."""
-        from automission.planner import (
-            Planner,
-            render_acceptance_md,
-            render_mission_md,
-            render_verify_sh,
-        )
+        from automission.planner import Planner, render_acceptance_md, render_mission_md
+        from automission.harness import render_verify_sh
 
         # Step 1: Planner generates plan (use cheap model)
         so_backend = _make_structured_backend(backend_name)
@@ -191,10 +190,10 @@ class TestPlannerFlow:
         print(f"\n[{backend_name}] Planner generated {len(draft.groups)} groups:")
         for g in draft.groups:
             print(f"  - {g.id} ({len(g.criteria)} criteria, deps={g.depends_on})")
-        print(f"  verify_command: {draft.verify_command}")
+        print(f"  verification_surface: {draft.verification_surface.runner}")
 
         assert len(draft.groups) >= 1
-        assert draft.verify_command
+        assert draft.verification_surface.runner
 
         # Step 2: Create workspace from planner output
         backend = _make_backend(backend_name)
@@ -202,7 +201,7 @@ class TestPlannerFlow:
             mission_id=f"real-planner-{backend_name}",
             goal=goal,
             acceptance_content=render_acceptance_md(draft),
-            verify_content=render_verify_sh(draft),
+            verify_content=render_verify_sh(draft.verification_surface),
             mission_content=render_mission_md(draft),
             backend=backend,
             workspace_dir=tmp_path / "ws",
@@ -211,12 +210,14 @@ class TestPlannerFlow:
         )
 
         # Step 3: Run agent loop
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id=f"real-planner-{backend_name}",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=5,
             max_cost=5.0,
             timeout=600,
@@ -260,13 +261,15 @@ class TestMultiAgent:
             docker_image=DOCKER_IMAGE,
         )
 
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         outcome = run_multi_agent(
             mission_id=f"real-multi-{backend_name}",
             mission_dir=ws,
             n_agents=2,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=5,
             max_cost=5.0,
             timeout=600,
@@ -310,12 +313,14 @@ class TestCircuitBreaker:
             docker_image=DOCKER_IMAGE,
         )
 
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id=f"real-breaker-{backend_name}",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=1,
             max_cost=5.0,
             timeout=600,
@@ -365,12 +370,14 @@ class TestIterationWithFeedback:
             docker_image=DOCKER_IMAGE,
         )
 
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id=f"real-iter-{backend_name}",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=5,
             max_cost=5.0,
             timeout=600,

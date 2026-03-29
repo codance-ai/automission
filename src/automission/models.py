@@ -75,11 +75,13 @@ class AttemptResult:
 
 @dataclass
 class AttemptContract:
-    """Auto-derived focus for an attempt from last VerifierResult."""
+    """Focus for the next attempt, derived from last verification."""
 
-    scope: str
-    done_criteria: list[str] = field(default_factory=list)
-    non_goals: list[str] = field(default_factory=list)
+    focus_groups: list[str] = field(default_factory=list)
+    preserve_groups: list[str] = field(default_factory=list)
+    evidence: list[str] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)
+    next_actions: list[str] = field(default_factory=list)
 
 
 class MissionOutcome:
@@ -98,74 +100,109 @@ class MissionOutcome:
     }
 
 
-# ── Verifier ──
+# ── Verification ──
 
 
 @dataclass
-class CriterionResult:
-    criterion: str
+class HarnessResult:
+    """Deterministic test execution result from Harness."""
+
     passed: bool
-    detail: str = ""
+    exit_code: int
+    stdout: str = ""
+    stderr: str = ""
+    json_output: dict[str, Any] | None = None
 
 
 @dataclass
-class VerifierResult:
-    contract_passed: bool
-    mission_passed: bool
-    gate_source: Literal["script", "llm"]
-    score: float | None = None
-    scores: dict[str, float] = field(default_factory=dict)
-    metrics: dict[str, Any] = field(default_factory=dict)
-    passed_criteria: list[CriterionResult] = field(default_factory=list)
-    failed_criteria: list[CriterionResult] = field(default_factory=list)
+class CriticResult:
+    """LLM analysis of test results + code changes."""
+
+    summary: str  # one-line summary for attempt history display
+    root_cause: str = ""
+    next_actions: list[str] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)
     group_statuses: dict[str, bool] = field(default_factory=dict)
-    suggestion: str = ""
-    reason: str = ""
+
+
+@dataclass
+class VerificationResult:
+    """Combined harness + critic result."""
+
+    harness: HarnessResult
+    critic: CriticResult
+
+    @property
+    def gate_passed(self) -> bool:
+        return self.harness.passed
+
+    @property
+    def mission_passed(self) -> bool:
+        return (
+            self.harness.passed
+            and bool(self.critic.group_statuses)
+            and all(self.critic.group_statuses.values())
+        )
+
+    @property
+    def group_statuses(self) -> dict[str, bool]:
+        return self.critic.group_statuses
 
     def to_json(self) -> str:
         """Serialize to JSON for ledger storage."""
         return json.dumps(
             {
-                "contract_passed": self.contract_passed,
-                "mission_passed": self.mission_passed,
-                "gate_source": self.gate_source,
-                "score": self.score,
-                "scores": self.scores,
-                "metrics": self.metrics,
-                "passed_criteria": [
-                    {"criterion": c.criterion, "passed": c.passed, "detail": c.detail}
-                    for c in self.passed_criteria
-                ],
-                "failed_criteria": [
-                    {"criterion": c.criterion, "passed": c.passed, "detail": c.detail}
-                    for c in self.failed_criteria
-                ],
-                "group_statuses": self.group_statuses,
-                "suggestion": self.suggestion,
-                "reason": self.reason,
+                "version": 2,
+                "harness": {
+                    "passed": self.harness.passed,
+                    "exit_code": self.harness.exit_code,
+                    "stdout": self.harness.stdout,
+                    "stderr": self.harness.stderr,
+                    "json_output": self.harness.json_output,
+                },
+                "critic": {
+                    "summary": self.critic.summary,
+                    "root_cause": self.critic.root_cause,
+                    "next_actions": self.critic.next_actions,
+                    "blockers": self.critic.blockers,
+                    "group_statuses": self.critic.group_statuses,
+                },
             }
         )
 
     @classmethod
-    def from_json(cls, raw: str) -> VerifierResult:
-        """Deserialize from JSON."""
+    def from_json(cls, raw: str) -> VerificationResult:
+        """Deserialize from JSON. Handles legacy VerifierResult format gracefully."""
         d = json.loads(raw)
+        if "version" not in d:
+            # Legacy format — graceful degrade
+            return cls(
+                harness=HarnessResult(
+                    passed=d.get("contract_passed", False),
+                    exit_code=-1,
+                ),
+                critic=CriticResult(
+                    summary="legacy format",
+                    group_statuses=d.get("group_statuses", {}),
+                ),
+            )
+        h = d["harness"]
+        c = d["critic"]
         return cls(
-            contract_passed=d["contract_passed"],
-            mission_passed=d["mission_passed"],
-            gate_source=d["gate_source"],
-            score=d.get("score"),
-            scores=d.get("scores", {}),
-            metrics=d.get("metrics", {}),
-            passed_criteria=[
-                CriterionResult(**c) for c in d.get("passed_criteria", [])
-            ],
-            failed_criteria=[
-                CriterionResult(**c) for c in d.get("failed_criteria", [])
-            ],
-            group_statuses=d.get("group_statuses", {}),
-            suggestion=d.get("suggestion", ""),
-            reason=d.get("reason", ""),
+            harness=HarnessResult(
+                passed=h["passed"],
+                exit_code=h["exit_code"],
+                stdout=h.get("stdout", ""),
+                stderr=h.get("stderr", ""),
+                json_output=h.get("json_output"),
+            ),
+            critic=CriticResult(
+                summary=c["summary"],
+                root_cause=c.get("root_cause", ""),
+                next_actions=c.get("next_actions", []),
+                blockers=c.get("blockers", []),
+                group_statuses=c.get("group_statuses", {}),
+            ),
         )
 
 
@@ -237,9 +274,18 @@ class PlanGroup:
 
 
 @dataclass
+class VerificationSurface:
+    """Metadata describing how to verify the mission (runner, targets, options)."""
+
+    runner: str  # e.g., "pytest", "jest", "bash"
+    targets: list[str] = field(default_factory=list)  # e.g., ["tests/"]
+    options: str = ""  # e.g., "-v --tb=short"
+
+
+@dataclass
 class PlanDraft:
     mission_summary: str
     constraints: list[str]
     groups: list[PlanGroup]
-    verify_command: str
+    verification_surface: VerificationSurface
     assumptions: list[str] = field(default_factory=list)

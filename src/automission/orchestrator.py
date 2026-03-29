@@ -15,7 +15,8 @@ from automission.events import EventWriter
 from automission.loop import run_loop
 from automission.merge import atomic_merge
 from automission.models import MissionOutcome
-from automission.verifier import Verifier, run_verify_sh
+from automission.critic import Critic
+from automission.harness import Harness, run_verify_sh
 from automission.worktree import cleanup_worktree, create_agent_worktree, sync_from_main
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,8 @@ def run_multi_agent(
     mission_dir: Path,
     n_agents: int,
     backend: AgentBackend,
-    verifier: Verifier,
+    harness: Harness,
+    critic: Critic,
     max_iterations: int = 20,
     max_cost: float = 10.0,
     timeout: int = 3600,
@@ -85,7 +87,8 @@ def run_multi_agent(
                 worktree_paths[agent_id],
                 agent_id,
                 backend,
-                verifier,
+                harness,
+                critic,
                 max_iterations,
                 max_cost,
                 timeout,
@@ -157,7 +160,8 @@ def _agent_worker(
     worktree_dir: Path,
     agent_id: str,
     backend: AgentBackend,
-    verifier: Verifier,
+    harness: Harness,
+    critic: Critic,
     max_iterations: int,
     max_cost: float,
     timeout: int,
@@ -266,7 +270,8 @@ def _agent_worker(
                     mission_id=mission_id,
                     workdir=worktree_dir,
                     backend=backend,
-                    verifier=verifier,
+                    harness=harness,
+                    critic=critic,
                     max_iterations=per_group_iterations,
                     max_cost=max_cost,
                     timeout=timeout,

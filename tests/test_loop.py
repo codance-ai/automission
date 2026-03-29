@@ -6,10 +6,11 @@ from pathlib import Path
 import pytest
 
 from automission.backend.mock import MockBackend
+from automission.critic import Critic
 from automission.db import Ledger
+from automission.harness import Harness
 from automission.loop import run_single_iteration, run_loop
-from automission.models import VerifierResult
-from automission.verifier import Verifier
+from automission.models import VerificationResult
 from conftest import MockCriticBackend
 from automission.workspace import create_mission
 
@@ -59,13 +60,15 @@ def mission_workspace(tmp_path, fixture_dir):
 class TestRunSingleIteration:
     def test_attempt_runs_and_records(self, mission_workspace):
         ws, backend = mission_workspace
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         run_single_iteration(
             mission_id="test-001",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
         )
 
         ledger = Ledger(ws / "mission.db")
@@ -75,29 +78,33 @@ class TestRunSingleIteration:
         assert attempts[0]["attempt_number"] == 1
         ledger.close()
 
-    def test_returns_verifier_result(self, mission_workspace):
+    def test_returns_verification_result(self, mission_workspace):
         ws, backend = mission_workspace
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         result = run_single_iteration(
             mission_id="test-001",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
         )
 
-        assert isinstance(result, VerifierResult)
-        assert result.gate_source == "script"
+        assert isinstance(result, VerificationResult)
+        assert result.gate_passed is True or result.gate_passed is False
 
     def test_auto_commits_changes(self, mission_workspace):
         ws, backend = mission_workspace
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         run_single_iteration(
             mission_id="test-001",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
         )
 
         log = subprocess.run(
@@ -109,13 +116,15 @@ class TestRunSingleIteration:
 
     def test_prompt_contains_instructions(self, mission_workspace):
         ws, backend = mission_workspace
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         run_single_iteration(
             mission_id="test-001",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
         )
 
         assert len(backend.attempts) == 1
@@ -127,17 +136,19 @@ class TestRunSingleIteration:
         """When verify.sh passes and critic says all groups done, mission completed."""
         ws, backend = mission_workspace
         # MockCriticBackend marks all groups as passed when gate passes
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         result = run_single_iteration(
             mission_id="test-001",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
         )
 
         # The mock writes correct calc.py, verify.sh should pass
-        if result.contract_passed:
+        if result.gate_passed:
             ledger = Ledger(ws / "mission.db")
             mission = ledger.get_mission("test-001")
             assert mission["status"] == "completed"
@@ -162,12 +173,14 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id="loop-001",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=10,
             max_cost=10.0,
             timeout=3600,
@@ -191,12 +204,14 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id="loop-iter",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=3,
             max_cost=100.0,
             timeout=3600,
@@ -220,12 +235,14 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id="loop-cost",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=100,
             max_cost=3.0,
             timeout=3600,
@@ -252,19 +269,21 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         run_loop(
             mission_id="loop-feedback",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=5,
             max_cost=100.0,
             timeout=3600,
         )
         assert len(backend.attempts) == 2
         second_prompt = backend.attempts[1].prompt
-        assert "FAIL" in second_prompt or "failed" in second_prompt.lower()
+        assert "FAIL" in second_prompt or "Focus Groups" in second_prompt
 
     def test_cancel_flag_stops_loop(self, tmp_path, fixture_dir):
         backend = MockBackend(
@@ -279,7 +298,8 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         call_count = 0
 
         def cancel_after_one():
@@ -291,7 +311,8 @@ class TestRunLoop:
             mission_id="loop-cancel",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=10,
             max_cost=100.0,
             timeout=3600,
@@ -318,7 +339,8 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         # Cancel after first attempt
         call_count = 0
 
@@ -331,7 +353,8 @@ class TestRunLoop:
             mission_id="loop-resume",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=10,
             max_cost=100.0,
             timeout=3600,
@@ -347,7 +370,8 @@ class TestRunLoop:
             mission_id="loop-resume",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=10,
             max_cost=100.0,
             timeout=3600,
@@ -371,12 +395,14 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id="loop-stall",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=10,
             max_cost=100.0,
             timeout=3600,
@@ -397,12 +423,14 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id="loop-sep",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=5,
             max_cost=10.0,
             timeout=3600,
@@ -423,12 +451,14 @@ class TestRunLoop:
         )
         # Create dirty state
         (ws / "src" / "partial.py").write_text("# partial work\n")
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         run_loop(
             mission_id="loop-dirty",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=1,
             max_cost=100.0,
             timeout=3600,
@@ -440,10 +470,10 @@ class TestRunLoop:
 class TestEventEnrichment:
     """Test that events contain enriched data for CLI display."""
 
-    def test_verification_event_includes_criteria_and_suggestion(
+    def test_verification_event_includes_summary_and_statuses(
         self, tmp_path, fixture_dir
     ):
-        """Verification event should include passed/failed criteria and suggestion."""
+        """Verification event should include summary, group_statuses, and next_actions."""
         from automission.events import EventWriter, EventTailer
 
         backend = MockBackend(
@@ -458,13 +488,15 @@ class TestEventEnrichment:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         with EventWriter(ws / "events.jsonl") as ew:
             run_loop(
                 mission_id="evt-001",
                 workdir=ws,
                 backend=backend,
-                verifier=verifier,
+                harness=harness,
+                critic=critic,
                 max_iterations=1,
                 max_cost=10.0,
                 timeout=3600,
@@ -476,14 +508,10 @@ class TestEventEnrichment:
         assert len(verify_events) == 1
 
         ve = verify_events[0]
-        # Should have structured criteria (dicts, not plain strings)
-        assert "passed_criteria" in ve
-        assert "failed_criteria" in ve
-        assert "suggestion" in ve
-        # Criteria should be dicts with criterion and group keys
-        for c in ve["failed_criteria"] + ve["passed_criteria"]:
-            assert "criterion" in c
-            assert "group" in c
+        assert "passed" in ve
+        assert "summary" in ve
+        assert "group_statuses" in ve
+        assert "next_actions" in ve
 
     def test_attempt_end_event_includes_changed_files(self, tmp_path, fixture_dir):
         """attempt_end event should include changed_files list."""
@@ -501,13 +529,15 @@ class TestEventEnrichment:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         with EventWriter(ws / "events.jsonl") as ew:
             run_loop(
                 mission_id="evt-002",
                 workdir=ws,
                 backend=backend,
-                verifier=verifier,
+                harness=harness,
+                critic=critic,
                 max_iterations=1,
                 max_cost=10.0,
                 timeout=3600,
@@ -540,13 +570,15 @@ class TestEventEnrichment:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         with EventWriter(ws / "events.jsonl") as ew:
             run_loop(
                 mission_id="evt-003",
                 workdir=ws,
                 backend=backend,
-                verifier=verifier,
+                harness=harness,
+                critic=critic,
                 max_iterations=3,
                 max_cost=10.0,
                 timeout=3600,

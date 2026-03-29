@@ -17,9 +17,10 @@ from automission.models import (
     AttemptContract,
     AttemptSpec,
     MissionOutcome,
-    VerifierResult,
+    VerificationResult,
 )
-from automission.verifier import Verifier
+from automission.critic import Critic
+from automission.harness import Harness
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +32,13 @@ def run_single_iteration(
     mission_id: str,
     workdir: Path,
     backend: AgentBackend,
-    verifier: Verifier,
+    harness: Harness,
+    critic: Critic,
     agent_id: str = "agent-1",
     timeout_s: int = 300,
     mission_dir: Path | None = None,
     target_groups: list[AcceptanceGroup] | None = None,
-) -> VerifierResult:
+) -> VerificationResult:
     """Run one attempt: prompt -> execute -> commit -> verify -> record.
 
     M1 compatibility wrapper — delegates to _run_one_iteration().
@@ -48,7 +50,8 @@ def run_single_iteration(
             mission_id=mission_id,
             workdir=workdir,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             ledger=ledger,
             agent_id=agent_id,
             timeout_s=timeout_s,
@@ -72,7 +75,8 @@ def run_loop(
     mission_id: str,
     workdir: Path,
     backend: AgentBackend,
-    verifier: Verifier,
+    harness: Harness,
+    critic: Critic,
     max_iterations: int = 20,
     max_cost: float = 10.0,
     timeout: int = 3600,
@@ -87,7 +91,7 @@ def run_loop(
     """Main agent loop with circuit breakers, stall detection, and resume.
 
     If target_groups is provided, the agent focuses on those groups only
-    (used by orchestrator for claimed groups). The verifier still evaluates
+    (used by orchestrator for claimed groups). The critic still evaluates
     all groups to compute group_statuses.
 
     Returns a MissionOutcome string value: "completed", "failed",
@@ -183,7 +187,8 @@ def run_loop(
                 mission_id=mission_id,
                 workdir=workdir,
                 backend=backend,
-                verifier=verifier,
+                harness=harness,
+                critic=critic,
                 ledger=ledger,
                 agent_id=agent_id,
                 timeout_s=timeout_per_attempt,
@@ -227,22 +232,23 @@ def _run_one_iteration(
     mission_id: str,
     workdir: Path,
     backend: AgentBackend,
-    verifier: Verifier,
+    harness: Harness,
+    critic: Critic,
     ledger: Ledger,
     agent_id: str = "agent-1",
     timeout_s: int = 300,
-    last_verification: VerifierResult | None = None,
+    last_verification: VerificationResult | None = None,
     stall_hint: bool = False,
     mission_dir: Path | None = None,
     target_groups: list[AcceptanceGroup] | None = None,
     event_writer: "EventWriter | None" = None,
-) -> VerifierResult:
+) -> VerificationResult:
     """Run one attempt: prompt -> execute -> commit -> verify -> record.
 
     Extracted core used by both run_single_iteration() and run_loop().
 
     If target_groups is set, the agent prompt focuses on those groups' criteria.
-    The verifier still evaluates all groups for group_statuses computation.
+    The critic still evaluates all groups for group_statuses computation.
     """
     # Clean stale lock file
     lock_file = workdir / ".git" / "index.lock"
@@ -255,7 +261,7 @@ def _run_one_iteration(
     attempt_number = (last["attempt_number"] + 1) if last else 1
     attempt_id = f"{mission_id}-{attempt_number}-{uuid.uuid4().hex[:6]}"
 
-    # Get ALL acceptance groups for verifier (needs full picture)
+    # Get ALL acceptance groups for critic (needs full picture)
     groups = ledger.get_acceptance_groups(mission_id)
 
     # Check for dirty state
@@ -271,11 +277,14 @@ def _run_one_iteration(
         )
     else:
         # Retry: derive contract scoped to target groups
-        contract = _derive_contract(last_verification, target_groups=target_groups)
+        contract = _derive_contract(
+            last_verification, all_groups=groups, target_groups=target_groups
+        )
         prompt = _build_retry_prompt(
             last_verification=last_verification,
             contract=contract,
             attempt_number=attempt_number,
+            all_groups=groups,
             stall_hint=stall_hint,
             dirty_state=dirty_state,
         )
@@ -296,20 +305,21 @@ def _run_one_iteration(
             "attempt_id": attempt_id,
         }
         if contract is not None:
-            start_data["scope"] = contract.scope
+            focus_names = [g.name for g in groups if g.id in contract.focus_groups]
+            start_data["scope"] = (
+                ", ".join(focus_names) if focus_names else "all groups"
+            )
         event_writer.emit("attempt_start", start_data)
     attempt_result = backend.run_attempt(spec)
 
     # ── Auto-commit ──
     commit_hash = _git_commit_if_changed(workdir, attempt_number)
 
-    # ── Verify ──
+    # ── Verify: Harness (deterministic) then Critic (LLM) ──
     verify_sh = workdir / "verify.sh"
-    verification = verifier.evaluate(
-        workdir,
-        verify_sh if verify_sh.exists() else None,
-        groups,
-    )
+    harness_result = harness.run(workdir, verify_sh if verify_sh.exists() else None)
+    critic_result = critic.analyze(harness_result, groups)
+    verification = VerificationResult(harness=harness_result, critic=critic_result)
 
     # ── Record to ledger ──
     ledger.record_attempt(
@@ -324,7 +334,7 @@ def _run_one_iteration(
         token_input=attempt_result.token_usage.input_tokens,
         token_output=attempt_result.token_usage.output_tokens,
         changed_files=attempt_result.changed_files,
-        verification_passed=verification.contract_passed,
+        verification_passed=verification.gate_passed,
         verification_result=verification.to_json(),
         commit_hash=commit_hash or "",
     )
@@ -345,87 +355,63 @@ def _run_one_iteration(
                 "changed_files": attempt_result.changed_files,
             },
         )
-        # Build criterion → group_name mapping for display
-        criterion_group_map: dict[str, str] = {}
-        for g in groups:
-            for c in g.criteria:
-                criterion_group_map[c.text] = g.name
-
         event_writer.emit(
             "verification",
             {
-                "passed": verification.contract_passed,
-                "score": verification.score,
-                "failed_criteria": [
-                    {
-                        "criterion": c.criterion,
-                        "group": criterion_group_map.get(c.criterion, ""),
-                    }
-                    for c in verification.failed_criteria
-                ],
-                "passed_criteria": [
-                    {
-                        "criterion": c.criterion,
-                        "group": criterion_group_map.get(c.criterion, ""),
-                    }
-                    for c in verification.passed_criteria
-                ],
-                "suggestion": verification.suggestion,
+                "passed": verification.gate_passed,
+                "summary": verification.critic.summary,
+                "group_statuses": verification.group_statuses,
+                "next_actions": verification.critic.next_actions,
             },
         )
 
     logger.info(
-        "Attempt %d: gate %s (score=%s)",
+        "Attempt %d: gate %s",
         attempt_number,
-        "PASS" if verification.contract_passed else "FAIL",
-        verification.score,
+        "PASS" if verification.gate_passed else "FAIL",
     )
 
     return verification
 
 
 def _derive_contract(
-    last_verification: VerifierResult,
+    last_verification: VerificationResult,
+    all_groups: list[AcceptanceGroup],
     target_groups: list[AcceptanceGroup] | None = None,
 ) -> AttemptContract:
-    """Auto-derive attempt contract from last verification result.
+    """Derive attempt contract from last verification using group statuses + critic feedback.
 
-    If target_groups is set, only include criteria belonging to those groups
-    in the must-fix list. Passed criteria from target groups go to non_goals.
-    Criteria from other groups are excluded from the contract entirely.
+    Uses group_statuses from Critic (group-level completion) and next_actions for
+    focused retry guidance. No criterion text matching needed.
     """
-    failed = last_verification.failed_criteria
-    passed = last_verification.passed_criteria
+    group_statuses = last_verification.group_statuses
+    groups = target_groups if target_groups is not None else all_groups
 
-    if target_groups is not None:
-        # Build set of criterion texts belonging to target groups
-        target_criterion_texts = set()
-        for g in target_groups:
-            for c in g.criteria:
-                target_criterion_texts.add(c.text)
-        # Filter to target groups only
-        failed = [c for c in failed if c.criterion in target_criterion_texts]
-        passed = [c for c in passed if c.criterion in target_criterion_texts]
+    # Focus groups: incomplete groups with deps satisfied
+    completed_ids = {gid for gid, done in group_statuses.items() if done}
+    focus_groups = []
+    for g in groups:
+        if g.id not in completed_ids:
+            deps_satisfied = all(dep in completed_ids for dep in g.depends_on)
+            if deps_satisfied:
+                focus_groups.append(g.id)
 
-    # Scope: focused description from failed criteria + suggestion
-    failed_texts = [c.criterion for c in failed]
-    scope_parts = []
-    if failed_texts:
-        scope_parts.append(f"Fix: {', '.join(failed_texts[:3])}")
-    if last_verification.suggestion:
-        scope_parts.append(last_verification.suggestion)
-    scope = ". ".join(scope_parts) if scope_parts else "Fix failing criteria"
+    # Preserve groups: completed groups
+    preserve_groups = [g.id for g in groups if g.id in completed_ids]
 
-    # done_criteria: failed criterion texts
-    done_criteria = [c.criterion for c in failed]
-
-    # non_goals: passed criterion texts (don't break these)
-    non_goals = [c.criterion for c in passed]
+    # Evidence: key excerpts from harness output
+    evidence = []
+    if last_verification.harness.stderr:
+        evidence.append(last_verification.harness.stderr[:500])
+    elif last_verification.harness.stdout:
+        evidence.append(last_verification.harness.stdout[:500])
 
     return AttemptContract(
-        scope=scope,
-        done_criteria=done_criteria,
-        non_goals=non_goals,
+        focus_groups=focus_groups,
+        preserve_groups=preserve_groups,
+        evidence=evidence,
+        blockers=list(last_verification.critic.blockers),
+        next_actions=list(last_verification.critic.next_actions),
     )
 
 
@@ -480,66 +466,67 @@ Review these changes — they may contain partial progress you can build on."""
 
 
 def _build_retry_prompt(
-    last_verification: VerifierResult,
+    last_verification: VerificationResult,
     contract: AttemptContract,
     attempt_number: int,
+    all_groups: list[AcceptanceGroup],
     stall_hint: bool = False,
     dirty_state: str | None = None,
 ) -> str:
     """Build prompt for retry attempts with feedback from last verification."""
-    lines = [
-        f"## Retry Attempt #{attempt_number}",
-        "",
-    ]
+    lines = [f"## Retry Attempt #{attempt_number}", ""]
 
-    # Contract: focus/must-fix/don't-break
-    lines.append("### Focus")
-    lines.append(contract.scope)
-    lines.append("")
-
-    if contract.done_criteria:
-        lines.append("### Must Fix (failed criteria)")
-        for c in contract.done_criteria:
-            lines.append(f"- {c}")
+    # Focus groups with criteria
+    if contract.focus_groups:
+        lines.append("### Focus Groups (need work)")
+        group_map = {g.id: g for g in all_groups}
+        for gid in contract.focus_groups:
+            group = group_map.get(gid)
+            if group:
+                lines.append(f"**{group.name}:**")
+                for c in group.criteria:
+                    lines.append(f"- {c.text}")
         lines.append("")
 
-    if contract.non_goals:
-        lines.append("### Don't Break (passed criteria)")
-        for c in contract.non_goals:
-            lines.append(f"- {c}")
+    if contract.preserve_groups:
+        lines.append("### Completed Groups (don't break)")
+        group_map = {g.id: g for g in all_groups}
+        for gid in contract.preserve_groups:
+            group = group_map.get(gid)
+            if group:
+                lines.append(f"- {group.name}")
         lines.append("")
 
-    # Last verification feedback
-    lines.append("### Last Verification Feedback")
-    gate_str = "PASS" if last_verification.contract_passed else "FAIL"
+    # Critic feedback
+    lines.append("### Last Verification")
+    gate_str = "PASS" if last_verification.gate_passed else "FAIL"
     lines.append(f"- Gate: **{gate_str}**")
-    if last_verification.score is not None:
-        lines.append(f"- Score: {last_verification.score}")
+    lines.append(f"- Summary: {last_verification.critic.summary}")
     lines.append("")
 
-    if last_verification.failed_criteria:
-        lines.append("**Failed criteria:**")
-        for c in last_verification.failed_criteria:
-            detail = f" — {c.detail}" if c.detail else ""
-            lines.append(f"- {c.criterion}{detail}")
+    if last_verification.critic.root_cause:
+        lines.append(f"**Root cause:** {last_verification.critic.root_cause}")
         lines.append("")
 
-    if last_verification.passed_criteria:
-        lines.append("**Passed criteria:**")
-        for c in last_verification.passed_criteria:
-            lines.append(f"- {c.criterion}")
+    if contract.next_actions:
+        lines.append("**Suggested actions:**")
+        for action in contract.next_actions:
+            lines.append(f"- {action}")
         lines.append("")
 
-    if last_verification.suggestion:
-        lines.append(f"**Suggestion:** {last_verification.suggestion}")
+    if contract.blockers:
+        lines.append("**Blockers:**")
+        for blocker in contract.blockers:
+            lines.append(f"- {blocker}")
         lines.append("")
 
     # Stall hint
     if stall_hint:
-        lines.append("### ⚠ STRATEGY CHANGE NEEDED")
+        lines.append("### STRATEGY CHANGE NEEDED")
         lines.append("")
-        lines.append("Multiple attempts have not improved the score.")
-        lines.append("You MUST try a fundamentally different approach:")
+        lines.append(
+            "Multiple attempts have not improved. Try a fundamentally different approach:"
+        )
         lines.append("- Re-read the acceptance criteria from scratch")
         lines.append("- Consider alternative implementations")
         lines.append("- Check if you're misunderstanding a requirement")
@@ -556,46 +543,28 @@ def _build_retry_prompt(
 
     # Instructions
     lines.append("### Instructions")
-    lines.append("Focus on fixing the failed criteria above.")
+    lines.append("Focus on fixing the failing groups above.")
     lines.append("Run `bash verify.sh` to check your work before finishing.")
-    lines.append("Do NOT break the already-passing criteria.")
+    lines.append("Do NOT break the already-completed groups.")
 
     return "\n".join(lines)
 
 
 def _count_stall(ledger: Ledger, mission_id: str, threshold: int) -> int:
-    """Count consecutive no-improvement attempts from the end.
+    """Count consecutive failed attempts from the end.
 
-    Walks backwards through attempts counting how many in a row
-    have a score at or below the best score seen before them.
+    Counts how many consecutive attempts have gate_passed=False.
+    Any gate pass resets the counter.
     """
     attempts = ledger.get_attempts(mission_id)
     if len(attempts) < 2:
         return 0
 
-    # Parse scores
-    scores: list[float] = []
-    for a in attempts:
-        vr_raw = a.get("verification_result", "")
-        if not vr_raw:
-            scores.append(0.0)
-            continue
-        try:
-            vr = json.loads(vr_raw)
-            s = vr.get("score")
-            scores.append(s if s is not None else 0.0)
-        except (json.JSONDecodeError, KeyError):
-            scores.append(0.0)
-
-    # O(n) forward scan: count trailing consecutive non-improvements
-    best_so_far = scores[0]
     stall_count = 0
-    for i in range(1, len(scores)):
-        if scores[i] > best_so_far:
-            best_so_far = scores[i]
-            stall_count = 0  # improvement resets counter
-        else:
-            stall_count += 1
+    for a in reversed(attempts):
+        if a.get("verification_passed"):
+            break
+        stall_count += 1
 
     return stall_count
 
@@ -649,7 +618,7 @@ def _get_dirty_state(workdir: Path, max_lines: int = 50) -> str | None:
 def _load_last_verification(
     ledger: Ledger,
     mission_id: str,
-) -> VerifierResult | None:
+) -> VerificationResult | None:
     """Load last verification result from ledger for resume."""
     last = ledger.get_last_attempt(mission_id)
     if not last:
@@ -658,7 +627,7 @@ def _load_last_verification(
     if not vr_raw:
         return None
     try:
-        return VerifierResult.from_json(vr_raw)
+        return VerificationResult.from_json(vr_raw)
     except (json.JSONDecodeError, KeyError):
         logger.warning("Could not parse last verification result for resume")
         return None
