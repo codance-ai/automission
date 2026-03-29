@@ -57,7 +57,8 @@ def atomic_merge(
                     rejected_reason="Regression verification failed",
                 )
 
-        # Step 4: Fetch agent's HEAD into mission_dir and fast-forward
+        # Step 4: Fetch agent's HEAD into mission_dir and fast-forward.
+        # Read the fetched SHA explicitly to avoid FETCH_HEAD races.
         fetch_result = subprocess.run(
             ["git", "fetch", str(worktree_dir.resolve()), "HEAD"],
             cwd=mission_dir,
@@ -71,8 +72,12 @@ def atomic_merge(
                 rejected_reason=f"Fetch failed: {stderr.strip()}",
             )
 
+        # Read SHA from FETCH_HEAD immediately — resilient to later git state changes
+        fetch_head_file = mission_dir / ".git" / "FETCH_HEAD"
+        fetch_sha = fetch_head_file.read_text().split()[0]
+
         ff_result = subprocess.run(
-            ["git", "merge", "--ff-only", "FETCH_HEAD"],
+            ["git", "merge", "--ff-only", fetch_sha],
             cwd=mission_dir,
             capture_output=True,
         )

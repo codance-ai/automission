@@ -23,6 +23,10 @@ def create_agent_worktree(mission_dir: Path, agent_id: str) -> Path:
     """
     workspace_path = mission_dir / "worktrees" / agent_id
 
+    # Remove stale workspace from previous run (defensive)
+    if workspace_path.exists():
+        shutil.rmtree(workspace_path)
+
     # Clone mission_dir → workspace (hardlinks objects, fast)
     subprocess.run(
         ["git", "clone", "--local", str(mission_dir), str(workspace_path)],
