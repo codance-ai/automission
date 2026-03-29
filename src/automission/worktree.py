@@ -34,6 +34,22 @@ def create_agent_worktree(mission_dir: Path, agent_id: str) -> Path:
         check=True,
     )
 
+    # Inherit git user config from source repo (clones don't copy local config;
+    # without this, git commit fails in CI where no global config exists).
+    for key in ("user.email", "user.name"):
+        result = subprocess.run(
+            ["git", "config", key],
+            cwd=mission_dir,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            subprocess.run(
+                ["git", "config", key, result.stdout.strip()],
+                cwd=workspace_path,
+                capture_output=True,
+            )
+
     # Create and checkout agent work branch
     subprocess.run(
         ["git", "checkout", "-b", f"{agent_id}-work"],
