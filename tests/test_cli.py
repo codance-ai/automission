@@ -8,6 +8,7 @@ from click.testing import CliRunner
 import pytest
 
 from automission.cli import cli
+from mock_helpers import mock_questionary_select
 
 
 @pytest.fixture
@@ -393,18 +394,6 @@ class TestNewFlags:
 class TestInitInteractiveFlow:
     """Interactive init flow: choose backends, auth, write config, pull Docker."""
 
-    @staticmethod
-    def _mock_select(answers: list[str]):
-        """Return a patch that makes questionary.select return *answers* in order."""
-        it = iter(answers)
-
-        def fake_select(*args, **kwargs):
-            mock_question = MagicMock()
-            mock_question.ask.return_value = next(it)
-            return mock_question
-
-        return patch("automission.cli.questionary.select", side_effect=fake_select)
-
     def test_claude_defaults_no_auth_prompt(self, runner, tmp_path):
         """Choosing claude for both backends skips auth prompts entirely."""
         config_path = tmp_path / "config.toml"
@@ -412,7 +401,7 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(
+            mock_questionary_select(
                 ["claude", "claude-sonnet-4-6", "claude", "claude-sonnet-4-6"]
             ),
         ):
@@ -428,7 +417,7 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(
+            mock_questionary_select(
                 ["codex", "gpt-5.4", "oauth", "claude", "claude-sonnet-4-6"]
             ),
         ):
@@ -446,7 +435,7 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(
+            mock_questionary_select(
                 ["codex", "gpt-5.4", "api_key", "claude", "claude-sonnet-4-6"]
             ),
         ):
@@ -462,7 +451,7 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(
+            mock_questionary_select(
                 [
                     "claude",
                     "claude-sonnet-4-6",
@@ -486,7 +475,7 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(
+            mock_questionary_select(
                 ["codex", "gpt-5.4", "oauth", "claude", "claude-sonnet-4-6"]
             ),
         ):
@@ -501,7 +490,7 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(
+            mock_questionary_select(
                 [
                     "codex",
                     "gpt-5.4-mini",
@@ -524,6 +513,34 @@ class TestInitInteractiveFlow:
         assert data["planner"]["backend"] == "gemini"
         assert data["planner"]["model"] == "gemini-3-flash-preview"
         assert data["planner"]["auth"] == "api_key"
+
+    def test_custom_model_via_other(self, runner, tmp_path):
+        """Selecting 'Other (type manually)' allows entering a custom model name."""
+        config_path = tmp_path / "config.toml"
+        with (
+            patch("automission.cli.CONFIG_PATH", config_path),
+            patch("subprocess.run") as mock_run,
+            mock_questionary_select(
+                [
+                    "claude",
+                    "Other (type manually)",
+                    "claude",
+                    "claude-sonnet-4-6",
+                ]
+            ),
+            patch("automission.cli.questionary.text") as mock_text,
+        ):
+            mock_text.return_value.ask.return_value = "my-custom-model"
+            mock_run.side_effect = FileNotFoundError()
+            result = runner.invoke(cli, ["init"])
+        assert result.exit_code == 0
+        import tomllib
+
+        data = tomllib.loads(config_path.read_text())
+        assert data["defaults"]["backend"] == "claude"
+        assert data["defaults"]["model"] == "my-custom-model"
+        assert data["planner"]["backend"] == "claude"
+        assert data["planner"]["model"] == "claude-sonnet-4-6"
 
 
 class TestPlannerIntegration:
@@ -787,18 +804,6 @@ class TestEnsureDockerBeforePlanner:
 
 
 class TestInitCommand:
-    @staticmethod
-    def _mock_select(answers: list[str]):
-        """Return a patch that makes questionary.select return *answers* in order."""
-        it = iter(answers)
-
-        def fake_select(*args, **kwargs):
-            mock_question = MagicMock()
-            mock_question.ask.return_value = next(it)
-            return mock_question
-
-        return patch("automission.cli.questionary.select", side_effect=fake_select)
-
     _DEFAULT_ANSWERS = ["claude", "claude-sonnet-4-6", "claude", "claude-sonnet-4-6"]
 
     def test_init_creates_config(self, runner, tmp_path):
@@ -806,7 +811,7 @@ class TestInitCommand:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(self._DEFAULT_ANSWERS),
+            mock_questionary_select(self._DEFAULT_ANSWERS),
         ):
             mock_run.side_effect = FileNotFoundError()  # docker not available
             result = runner.invoke(cli, ["init"])
@@ -828,7 +833,7 @@ class TestInitCommand:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(self._DEFAULT_ANSWERS),
+            mock_questionary_select(self._DEFAULT_ANSWERS),
         ):
             mock_run.side_effect = FileNotFoundError()
             result = runner.invoke(cli, ["init", "--force"])
@@ -840,7 +845,7 @@ class TestInitCommand:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(self._DEFAULT_ANSWERS),
+            mock_questionary_select(self._DEFAULT_ANSWERS),
         ):
             # Docker available, image exists
             mock_run.return_value = MagicMock(returncode=0)
