@@ -93,9 +93,10 @@ def init(force: bool) -> None:
     # ── Step 1: Agent backend ──
     click.echo("Step 1: Agent backend")
     agent_backend = questionary.select(
-        "  Choose agent backend:",
+        "Choose agent backend:",
         choices=backends,
         default="claude",
+        qmark="›",
     ).ask()
     if agent_backend is None:
         raise SystemExit(0)
@@ -106,9 +107,10 @@ def init(force: bool) -> None:
     click.echo()
     click.echo("Step 2: Planner backend")
     planner_backend = questionary.select(
-        "  Choose planner backend:",
+        "Choose planner backend:",
         choices=backends,
         default="claude",
+        qmark="›",
     ).ask()
     if planner_backend is None:
         raise SystemExit(0)
@@ -119,9 +121,10 @@ def init(force: bool) -> None:
     click.echo()
     click.echo("Step 3: Verifier")
     use_planner = questionary.select(
-        f"  Use same settings as planner ({planner_backend} / {planner_model})?",
+        f"Use same settings as planner ({planner_backend} / {planner_model})?",
         choices=["yes", "no"],
         default="yes",
+        qmark="›",
     ).ask()
     if use_planner is None:
         raise SystemExit(0)
@@ -132,9 +135,10 @@ def init(force: bool) -> None:
         verifier_auth = planner_auth
     else:
         verifier_backend = questionary.select(
-            "  Choose verifier backend:",
+            "Choose verifier backend:",
             choices=backends,
             default=planner_backend,
+            qmark="›",
         ).ask()
         if verifier_backend is None:
             raise SystemExit(0)
@@ -217,14 +221,15 @@ def _prompt_model(backend: str) -> str:
         return ""
     choices = models + ["Other (type manually)"]
     model = questionary.select(
-        f"  Model for {backend}:",
+        f"Model for {backend}:",
         choices=choices,
         default=models[0],
+        qmark="›",
     ).ask()
     if model is None:
         raise SystemExit(0)
     if model == "Other (type manually)":
-        model = questionary.text("  Enter model name:").ask()
+        model = questionary.text("Enter model name:", qmark="›").ask()
         if not model:
             raise SystemExit(0)
     return model
@@ -239,9 +244,10 @@ def _prompt_auth(backend: str) -> str:
         return "api_key"
 
     auth = questionary.select(
-        f"  Authentication for {backend}:",
+        f"Authentication for {backend}:",
         choices=["api_key", "oauth"],
         default="api_key",
+        qmark="›",
     ).ask()
     if auth is None:
         raise SystemExit(0)
