@@ -110,6 +110,39 @@ class TestCreateMission:
 
         assert os.access(result / "verify.sh", os.X_OK)
 
+    def test_gitignore_created(self, tmp_path, fixture_dir):
+        ws = tmp_path / "missions" / "test-001"
+        result = create_mission(
+            mission_id="test-001",
+            goal="Build calculator",
+            acceptance_path=fixture_dir / "ACCEPTANCE.md",
+            verify_path=fixture_dir / "verify.sh",
+            backend=MockBackend(),
+            workspace_dir=ws,
+        )
+        gitignore = result / ".gitignore"
+        assert gitignore.exists()
+        content = gitignore.read_text()
+        assert "__pycache__/" in content
+        assert "node_modules/" in content
+        assert "*.pyc" in content
+
+    def test_gitignore_overridden_by_init_files(self, tmp_path, fixture_dir):
+        init_dir = tmp_path / "init"
+        init_dir.mkdir()
+        custom_gitignore = "# custom\n*.log\n"
+        (init_dir / ".gitignore").write_text(custom_gitignore)
+        ws = tmp_path / "missions" / "test-override"
+        result = create_mission(
+            mission_id="test-override",
+            goal="Build something",
+            backend=MockBackend(),
+            workspace_dir=ws,
+            init_files_dir=init_dir,
+        )
+        content = (result / ".gitignore").read_text()
+        assert content == custom_gitignore
+
     def test_copies_fixture_workspace_files(self, tmp_path, fixture_dir):
         ws = tmp_path / "missions" / "test-001"
         result = create_mission(
