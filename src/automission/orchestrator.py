@@ -236,8 +236,13 @@ def _agent_worker(
                 time.sleep(1)
                 continue
 
-            # Sync worktree from main
-            sync_from_main(worktree_dir)
+            # Sync workspace from main
+            if not sync_from_main(worktree_dir):
+                logger.warning(
+                    "%s: sync from main failed, releasing claim", agent_id
+                )
+                ledger.release_claim(claim_id, "failed")
+                continue
 
             # Start heartbeat thread
             heartbeat_stop = threading.Event()
