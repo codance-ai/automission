@@ -596,7 +596,6 @@ def run(
         result = {
             "mission_id": mission_id,
             "status": outcome,
-            "total_cost": mission_stats.get("total_cost", 0.0),
             "total_attempts": mission_stats.get("total_attempts", 0),
             "changed_files": [f["path"] for f in changed_files_summary],
             "workspace": str(ws),
@@ -871,6 +870,15 @@ def _attach_live_view(workspace_dir: Path, mission_id: str) -> None:
         click.echo(f"  automission stop {mission_id}     — terminate mission")
 
 
+def _fmt_tokens(total: int) -> str:
+    """Format token count for display: 1234 → '1.2k tokens'."""
+    if total >= 1_000_000:
+        return f"{total / 1_000_000:.1f}M tokens"
+    if total >= 1_000:
+        return f"{total / 1_000:.1f}k tokens"
+    return f"{total} tokens"
+
+
 def _render_event(event: dict) -> None:
     """Render a single event to terminal."""
     etype = event.get("type", "unknown")
@@ -884,8 +892,8 @@ def _render_event(event: dict) -> None:
         click.echo(f"  [{agent}] attempt #{attempt} ...")
     elif etype == "attempt_end":
         status = event.get("status", "?")
-        cost = event.get("cost_usd", 0)
-        click.echo(f"  attempt done ({status}, ${cost:.2f})")
+        tokens = event.get("token_input", 0) + event.get("token_output", 0)
+        click.echo(f"  attempt done ({status}, {_fmt_tokens(tokens)})")
     elif etype == "verification":
         passed = event.get("passed", False)
         score = event.get("score", "?")
@@ -980,7 +988,6 @@ def _print_mission(mission: dict, ws: Path, ledger: Ledger) -> None:
     mission_id = mission["id"]
     click.echo(f"Mission:  {mission_id}")
     click.echo(f"Status:   {mission['status']}")
-    click.echo(f"Cost:     ${mission['total_cost']:.2f}")
     click.echo(f"Attempts: {mission['total_attempts']}")
     if mission["agents"] > 1:
         click.echo(f"Agents:   {mission['agents']}")
@@ -1007,10 +1014,11 @@ def _print_mission(mission: dict, ws: Path, ledger: Ledger) -> None:
         for a in attempts:
             gate = "PASS" if a["verification_passed"] else "FAIL"
             color = "green" if a["verification_passed"] else "red"
+            tokens = (a["token_input"] or 0) + (a["token_output"] or 0)
             click.echo(
                 f"  #{a['attempt_number']}  {a['agent_id']:10s}  "
                 f"{click.style(gate, fg=color):4s}  "
-                f"${a['cost_usd']:.2f}  {a['duration_s']:.0f}s"
+                f"{_fmt_tokens(tokens)}  {a['duration_s']:.0f}s"
             )
 
 
@@ -1068,7 +1076,8 @@ def logs(mission_id, last, verbose_logs, follow, json_output):
                         "agent_id": a["agent_id"],
                         "status": a["status"],
                         "verification_passed": bool(a["verification_passed"]),
-                        "cost_usd": a["cost_usd"],
+                        "token_input": a["token_input"],
+                        "token_output": a["token_output"],
                         "duration_s": a["duration_s"],
                     }
                     if verbose_logs and a.get("verification_result"):
@@ -1084,10 +1093,11 @@ def logs(mission_id, last, verbose_logs, follow, json_output):
                 for a in attempts:
                     gate = "PASS" if a["verification_passed"] else "FAIL"
                     color = "green" if a["verification_passed"] else "red"
+                    tokens = (a["token_input"] or 0) + (a["token_output"] or 0)
                     click.echo(
                         f"  #{a['attempt_number']}  {a['agent_id']:10s}  "
                         f"{click.style(gate, fg=color):4s}  "
-                        f"${a['cost_usd']:.2f}  {a['duration_s']:.0f}s"
+                        f"{_fmt_tokens(tokens)}  {a['duration_s']:.0f}s"
                     )
                     if verbose_logs and a.get("verification_result"):
                         try:
@@ -1115,10 +1125,11 @@ def logs(mission_id, last, verbose_logs, follow, json_output):
                         for a in new_attempts:
                             gate = "PASS" if a["verification_passed"] else "FAIL"
                             color = "green" if a["verification_passed"] else "red"
+                            tokens = (a["token_input"] or 0) + (a["token_output"] or 0)
                             click.echo(
                                 f"  #{a['attempt_number']}  {a['agent_id']:10s}  "
                                 f"{click.style(gate, fg=color):4s}  "
-                                f"${a['cost_usd']:.2f}  {a['duration_s']:.0f}s"
+                                f"{_fmt_tokens(tokens)}  {a['duration_s']:.0f}s"
                             )
                         seen = len(attempts)
                     # Check if mission is still running
@@ -1261,7 +1272,6 @@ def list_missions(json_output):
                             "id": m["id"],
                             "status": m["status"],
                             "goal": m["goal"][:80] if m["goal"] else "",
-                            "total_cost": m["total_cost"],
                             "total_attempts": m["total_attempts"],
                             "workspace": str(d),
                         }
@@ -1289,11 +1299,10 @@ def list_missions(json_output):
             }.get(m["status"], "white")
             status_padded = m["status"].ljust(16)
             styled_status = click.style(status_padded, fg=status_color)
-            cost = m["total_cost"]
             goal_short = m["goal"][:50]
             click.echo(
                 f"  {m['id']}  {styled_status}  "
-                f"${cost:.2f}  {m['total_attempts']} attempts  "
+                f"{m['total_attempts']} attempts  "
                 f"{goal_short}"
             )
 

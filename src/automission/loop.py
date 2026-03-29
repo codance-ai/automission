@@ -346,7 +346,8 @@ def _run_one_iteration(
                 "agent_id": agent_id,
                 "attempt": attempt_number,
                 "status": attempt_result.status,
-                "cost_usd": attempt_result.cost_usd,
+                "token_input": attempt_result.token_usage.input_tokens,
+                "token_output": attempt_result.token_usage.output_tokens,
                 "changed_files": attempt_result.changed_files,
             },
         )
