@@ -35,7 +35,7 @@ RUN mkdir -p $HOME/.gemini $HOME/.codex
 # Install pytest (for verify.sh that runs tests)
 RUN pip install --no-cache-dir --user pytest
 
-# Trust mounted workspace directory
-RUN git config --global --add safe.directory /workspace
+# Trust any mounted directory (agent uses /workspace, verifier uses random paths)
+RUN git config --global --add safe.directory '*'
 
 WORKDIR /workspace
