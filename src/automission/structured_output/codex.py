@@ -36,8 +36,7 @@ def _openai_strict_schema(schema: dict) -> dict:
         if "properties" in schema:
             schema["required"] = list(schema["properties"].keys())
             schema["properties"] = {
-                k: _openai_strict_schema(v)
-                for k, v in schema["properties"].items()
+                k: _openai_strict_schema(v) for k, v in schema["properties"].items()
             }
         else:
             raise ValueError(
@@ -93,9 +92,7 @@ class CodexStructuredOutput:
         openai_schema = _openai_strict_schema(json_schema)
         # Codex --output-schema expects a file path, not inline JSON.
         # Write schema to a temp file on the host and mount it into the container.
-        schema_tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        )
+        schema_tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
         try:
             json.dump(openai_schema, schema_tmp)
             schema_tmp.close()

@@ -484,9 +484,7 @@ class TestEventEnrichment:
             assert "criterion" in c
             assert "group" in c
 
-    def test_attempt_end_event_includes_changed_files(
-        self, tmp_path, fixture_dir
-    ):
+    def test_attempt_end_event_includes_changed_files(self, tmp_path, fixture_dir):
         """attempt_end event should include changed_files list."""
         from automission.events import EventWriter, EventTailer
 

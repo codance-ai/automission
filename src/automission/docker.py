@@ -50,7 +50,12 @@ def build_docker_cmd(
     cmd = ["docker", "run", "--rm"]
 
     if workdir is not None:
-        cmd += ["-v", f"{workdir.resolve()}:{container_workdir}", "-w", container_workdir]
+        cmd += [
+            "-v",
+            f"{workdir.resolve()}:{container_workdir}",
+            "-w",
+            container_workdir,
+        ]
 
     for host_path, container_path in volumes or []:
         cmd += ["-v", f"{host_path}:{container_path}:ro"]

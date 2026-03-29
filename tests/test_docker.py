@@ -143,7 +143,6 @@ class TestBuildDockerCmd:
         assert cmd[v_indices[1] + 1] == "/host/creds.json:/container/creds.json:ro"
         assert cmd[v_indices[2] + 1] == "/home/user/.codex:/root/.codex"
 
-
     def test_custom_container_workdir(self, tmp_path):
         workdir = tmp_path / "project"
         workdir.mkdir()

@@ -890,7 +890,9 @@ def _fmt_changed_files(files: list[str], max_shown: int = 5) -> str:
     return f"{shown} +{len(files) - max_shown} more ({len(files)} files)"
 
 
-def _render_criteria(event_or_vr: dict, *, indent: str = "    ", verbose: bool = False) -> None:
+def _render_criteria(
+    event_or_vr: dict, *, indent: str = "    ", verbose: bool = False
+) -> None:
     """Render per-criterion pass/fail lines.
 
     Works with both live event dicts and VerifierResult-like dicts.
@@ -1027,9 +1029,7 @@ def _render_event(event: dict) -> None:
         click.secho(f"  Group {gid} completed!", fg="green")
     elif etype == "mission_completed":
         attempts = event.get("total_attempts", 0)
-        click.secho(
-            f"\nMission completed! ({attempts} attempts)", fg="green"
-        )
+        click.secho(f"\nMission completed! ({attempts} attempts)", fg="green")
     elif etype == "mission_failed":
         outcome = event.get("outcome", "failed")
         click.secho(f"\nMission ended: {outcome}", fg="yellow")
@@ -1132,7 +1132,9 @@ def _print_mission(mission: dict, ws: Path, ledger: Ledger) -> None:
                 for c in vr.passed_criteria:
                     gname = criterion_to_group.get(c.criterion, "")
                     if gname:
-                        group_passed_counts[gname] = group_passed_counts.get(gname, 0) + 1
+                        group_passed_counts[gname] = (
+                            group_passed_counts.get(gname, 0) + 1
+                        )
             except (json.JSONDecodeError, KeyError):
                 logger.warning(
                     "Could not parse verification_result for criteria counts"
@@ -1484,8 +1486,7 @@ def export(mission_id: str, output: str, force: bool) -> None:
     if target.exists():
         if not force:
             click.echo(
-                f"Target directory already exists: {target}\n"
-                "Use --force to overwrite."
+                f"Target directory already exists: {target}\nUse --force to overwrite."
             )
             sys.exit(1)
         shutil.rmtree(target)

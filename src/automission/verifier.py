@@ -121,7 +121,11 @@ def run_verify_sh(
             docker_image,
             # Configure git safe.directory before running verify.sh so git
             # operations work at the non-standard mount path.
-            ["bash", "-c", f'git config --global --add safe.directory "{container_workdir}" && bash "{rel_script}"'],
+            [
+                "bash",
+                "-c",
+                f'git config --global --add safe.directory "{container_workdir}" && bash "{rel_script}"',
+            ],
             workdir=workdir,
             container_workdir=container_workdir,
         )

@@ -174,9 +174,18 @@ class TestRunModelFlag:
 
     def test_run_default_model(self, runner, fixture_dir):
         mocks = _mock_daemon_run()
-        with mocks[0] as mock_ws, mocks[1], mocks[2], mocks[3], mocks[4], patch(
-            "automission.cli.load_config",
-            return_value=__import__("automission.config", fromlist=["AutomissionConfig"]).AutomissionConfig(),
+        with (
+            mocks[0] as mock_ws,
+            mocks[1],
+            mocks[2],
+            mocks[3],
+            mocks[4],
+            patch(
+                "automission.cli.load_config",
+                return_value=__import__(
+                    "automission.config", fromlist=["AutomissionConfig"]
+                ).AutomissionConfig(),
+            ),
         ):
             result = runner.invoke(
                 cli,
@@ -1075,7 +1084,10 @@ class TestRenderCriteria:
 
         event = {
             "failed_criteria": [
-                {"criterion": "CLI rejects missing expression", "group": "input_handling"},
+                {
+                    "criterion": "CLI rejects missing expression",
+                    "group": "input_handling",
+                },
             ],
             "passed_criteria": [
                 {"criterion": "1+1 returns 2", "group": "basic_arithmetic"},
@@ -1194,7 +1206,10 @@ class TestRenderEventRichOutput:
             "passed": False,
             "score": 0.4,
             "failed_criteria": [
-                {"criterion": "CLI rejects missing expression", "group": "input_handling"},
+                {
+                    "criterion": "CLI rejects missing expression",
+                    "group": "input_handling",
+                },
             ],
             "passed_criteria": [
                 {"criterion": "1+1 returns 2", "group": "basic_arithmetic"},
