@@ -331,14 +331,7 @@ def _run_one_iteration(
 
     # ── Update group statuses ──
     if verification.group_statuses:
-        statuses = verification.group_statuses
-        if target_groups is not None:
-            # Only update statuses for target groups to avoid marking
-            # unevaluated groups as complete (basic_critic marks all True/False)
-            target_ids = {g.id for g in target_groups}
-            statuses = {k: v for k, v in statuses.items() if k in target_ids}
-        if statuses:
-            ledger.update_group_statuses(statuses)
+        ledger.update_group_statuses(verification.group_statuses)
 
     if event_writer:
         event_writer.emit(

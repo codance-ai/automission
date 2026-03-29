@@ -10,6 +10,7 @@ from automission.db import Ledger
 from automission.loop import run_single_iteration, run_loop
 from automission.models import VerifierResult
 from automission.verifier import Verifier
+from conftest import MockCriticBackend
 from automission.workspace import create_mission
 
 
@@ -58,7 +59,7 @@ def mission_workspace(tmp_path, fixture_dir):
 class TestRunSingleIteration:
     def test_attempt_runs_and_records(self, mission_workspace):
         ws, backend = mission_workspace
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         run_single_iteration(
             mission_id="test-001",
@@ -76,7 +77,7 @@ class TestRunSingleIteration:
 
     def test_returns_verifier_result(self, mission_workspace):
         ws, backend = mission_workspace
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         result = run_single_iteration(
             mission_id="test-001",
@@ -90,7 +91,7 @@ class TestRunSingleIteration:
 
     def test_auto_commits_changes(self, mission_workspace):
         ws, backend = mission_workspace
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         run_single_iteration(
             mission_id="test-001",
@@ -108,7 +109,7 @@ class TestRunSingleIteration:
 
     def test_prompt_contains_instructions(self, mission_workspace):
         ws, backend = mission_workspace
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         run_single_iteration(
             mission_id="test-001",
@@ -126,7 +127,7 @@ class TestRunSingleIteration:
         """When verify.sh passes and basic critic says all groups done, mission completed."""
         ws, backend = mission_workspace
         # Basic critic (no LLM) marks all groups as passed when gate passes
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
 
         result = run_single_iteration(
             mission_id="test-001",
@@ -161,7 +162,7 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id="loop-001",
             workdir=ws,
@@ -190,7 +191,7 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id="loop-iter",
             workdir=ws,
@@ -219,7 +220,7 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id="loop-cost",
             workdir=ws,
@@ -251,7 +252,7 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         run_loop(
             mission_id="loop-feedback",
             workdir=ws,
@@ -278,7 +279,7 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         call_count = 0
 
         def cancel_after_one():
@@ -317,7 +318,7 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         # Cancel after first attempt
         call_count = 0
 
@@ -370,7 +371,7 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id="loop-stall",
             workdir=ws,
@@ -396,7 +397,7 @@ class TestRunLoop:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id="loop-sep",
             workdir=ws,
@@ -422,7 +423,7 @@ class TestRunLoop:
         )
         # Create dirty state
         (ws / "src" / "partial.py").write_text("# partial work\n")
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         run_loop(
             mission_id="loop-dirty",
             workdir=ws,
@@ -457,7 +458,7 @@ class TestEventEnrichment:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         with EventWriter(ws / "events.jsonl") as ew:
             run_loop(
                 mission_id="evt-001",
@@ -500,7 +501,7 @@ class TestEventEnrichment:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         with EventWriter(ws / "events.jsonl") as ew:
             run_loop(
                 mission_id="evt-002",
@@ -539,7 +540,7 @@ class TestEventEnrichment:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         with EventWriter(ws / "events.jsonl") as ew:
             run_loop(
                 mission_id="evt-003",

@@ -1,9 +1,61 @@
 """Shared test fixtures."""
 
+import re
 import subprocess as _subprocess
 from pathlib import Path
 
 import pytest
+
+
+class MockCriticBackend:
+    """Mock StructuredOutputBackend that evaluates based on gate result in the prompt.
+
+    Parses the critic prompt to determine gate pass/fail and group IDs,
+    then returns appropriate per-group statuses. Used in tests as a
+    deterministic replacement for the real LLM critic.
+    """
+
+    def query(
+        self, prompt: str, model: str, json_schema: dict, timeout: int = 300
+    ) -> dict:
+        gate_passed = "Passed: True" in prompt
+        # Extract group IDs from "## Groups\n<id1>, <id2>"
+        groups_match = re.search(r"## Groups\n(.+)", prompt)
+        group_ids = (
+            [g.strip() for g in groups_match.group(1).split(",")]
+            if groups_match
+            else []
+        )
+        # Extract criteria from "- [group_name] criterion_text"
+        criteria = re.findall(r"- \[.+?\] (.+)", prompt)
+
+        if gate_passed:
+            return {
+                "passed_criteria": [
+                    {"criterion": c, "passed": True, "detail": "Gate passed"}
+                    for c in criteria
+                ],
+                "failed_criteria": [],
+                "group_statuses": [
+                    {"group_id": gid, "completed": True} for gid in group_ids
+                ],
+                "suggestion": "",
+                "reason": "All gate checks passed.",
+                "score": 1.0,
+            }
+        return {
+            "passed_criteria": [],
+            "failed_criteria": [
+                {"criterion": c, "passed": False, "detail": "Gate failed"}
+                for c in criteria
+            ],
+            "group_statuses": [
+                {"group_id": gid, "completed": False} for gid in group_ids
+            ],
+            "suggestion": "Review the test output and fix failing tests.",
+            "reason": "Gate verification failed.",
+            "score": 0.0,
+        }
 
 
 @pytest.fixture

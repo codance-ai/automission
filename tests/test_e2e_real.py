@@ -23,6 +23,7 @@ from automission.db import Ledger
 from automission.loop import run_loop
 from automission.orchestrator import run_multi_agent
 from automission.verifier import Verifier
+from conftest import MockCriticBackend
 from automission.workspace import create_mission
 
 # ── Skip conditions ──
@@ -138,7 +139,7 @@ class TestSingleAgentCalculator:
             docker_image=DOCKER_IMAGE,
         )
 
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id=f"real-calc-{backend_name}",
             workdir=ws,
@@ -210,7 +211,7 @@ class TestPlannerFlow:
         )
 
         # Step 3: Run agent loop
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id=f"real-planner-{backend_name}",
             workdir=ws,
@@ -259,7 +260,7 @@ class TestMultiAgent:
             docker_image=DOCKER_IMAGE,
         )
 
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         outcome = run_multi_agent(
             mission_id=f"real-multi-{backend_name}",
             mission_dir=ws,
@@ -309,7 +310,7 @@ class TestCircuitBreaker:
             docker_image=DOCKER_IMAGE,
         )
 
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id=f"real-breaker-{backend_name}",
             workdir=ws,
@@ -364,7 +365,7 @@ class TestIterationWithFeedback:
             docker_image=DOCKER_IMAGE,
         )
 
-        verifier = Verifier()
+        verifier = Verifier(backend=MockCriticBackend())
         outcome = run_loop(
             mission_id=f"real-iter-{backend_name}",
             workdir=ws,
