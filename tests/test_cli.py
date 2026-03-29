@@ -412,7 +412,9 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(["claude", "claude-sonnet-4-6", "claude", "claude-sonnet-4-6"]),
+            self._mock_select(
+                ["claude", "claude-sonnet-4-6", "claude", "claude-sonnet-4-6"]
+            ),
         ):
             mock_run.side_effect = FileNotFoundError()  # docker not available
             result = runner.invoke(cli, ["init"])
@@ -426,7 +428,9 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(["codex", "gpt-5.4", "oauth", "claude", "claude-sonnet-4-6"]),
+            self._mock_select(
+                ["codex", "gpt-5.4", "oauth", "claude", "claude-sonnet-4-6"]
+            ),
         ):
             mock_run.side_effect = [
                 MagicMock(returncode=0),  # codex login
@@ -442,7 +446,9 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(["codex", "gpt-5.4", "api_key", "claude", "claude-sonnet-4-6"]),
+            self._mock_select(
+                ["codex", "gpt-5.4", "api_key", "claude", "claude-sonnet-4-6"]
+            ),
         ):
             mock_run.side_effect = FileNotFoundError()  # docker not available
             result = runner.invoke(cli, ["init"])
@@ -456,7 +462,15 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(["claude", "claude-sonnet-4-6", "gemini", "gemini-3.1-pro-preview", "oauth"]),
+            self._mock_select(
+                [
+                    "claude",
+                    "claude-sonnet-4-6",
+                    "gemini",
+                    "gemini-3.1-pro-preview",
+                    "oauth",
+                ]
+            ),
         ):
             mock_run.side_effect = [
                 MagicMock(returncode=0),  # gemini oauth
@@ -472,7 +486,9 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(["codex", "gpt-5.4", "oauth", "claude", "claude-sonnet-4-6"]),
+            self._mock_select(
+                ["codex", "gpt-5.4", "oauth", "claude", "claude-sonnet-4-6"]
+            ),
         ):
             mock_run.side_effect = FileNotFoundError()
             result = runner.invoke(cli, ["init"])
@@ -485,7 +501,16 @@ class TestInitInteractiveFlow:
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
-            self._mock_select(["codex", "gpt-5.4-mini", "api_key", "gemini", "gemini-3-flash-preview", "api_key"]),
+            self._mock_select(
+                [
+                    "codex",
+                    "gpt-5.4-mini",
+                    "api_key",
+                    "gemini",
+                    "gemini-3-flash-preview",
+                    "api_key",
+                ]
+            ),
         ):
             mock_run.side_effect = FileNotFoundError()
             result = runner.invoke(cli, ["init"])

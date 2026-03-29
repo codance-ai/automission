@@ -236,9 +236,7 @@ def _run_oauth_login(backend: str) -> None:
         return
     click.echo(f"  Running: {' '.join(login_cmd)}")
     try:
-        login_result = subprocess.run(
-            login_cmd, timeout=120, stdout=subprocess.DEVNULL
-        )
+        login_result = subprocess.run(login_cmd, timeout=120, stdout=subprocess.DEVNULL)
         if login_result.returncode == 0:
             click.secho(f"  {backend} OAuth: logged in", fg="green")
         else:
