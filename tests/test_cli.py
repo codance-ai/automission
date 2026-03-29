@@ -916,3 +916,116 @@ class TestInitCommand:
             result = runner.invoke(cli, ["init"])
         assert result.exit_code == 0
         assert "docker: available" in result.output.lower()
+
+
+class TestExportCommand:
+    """Tests for the export command."""
+
+    def _create_fake_workspace(self, tmp_path, mission_id="test-001"):
+        """Create a fake mission workspace with internal and user files."""
+        from automission.db import Ledger
+
+        ws = tmp_path / "missions" / mission_id
+        ws.mkdir(parents=True)
+
+        # User files (should be exported)
+        (ws / "main.py").write_text("print('hello')")
+        (ws / "src").mkdir()
+        (ws / "src" / "app.py").write_text("class App: pass")
+        (ws / "README.md").write_text("# Project")
+
+        # Internal files (should NOT be exported)
+        (ws / ".git").mkdir()
+        (ws / ".git" / "config").write_text("[core]")
+        (ws / "MISSION.md").write_text("# Mission")
+        (ws / "ACCEPTANCE.md").write_text("# Acceptance")
+        (ws / "AUTOMISSION.md").write_text("# Auto")
+        (ws / "verify.sh").write_text("#!/bin/bash")
+        (ws / "skills").mkdir()
+        (ws / "skills" / "skill1.md").write_text("# Skill")
+        (ws / "__pycache__").mkdir()
+        (ws / "__pycache__" / "main.cpython-314.pyc").write_text("bytecode")
+
+        # Create ledger so _find_mission_workspace can find it
+        ledger = Ledger(ws / "mission.db")
+        ledger.create_mission(
+            mission_id=mission_id,
+            goal="test",
+            backend="claude",
+            model="claude-sonnet-4-6",
+            backend_auth="api_key",
+            verifier_backend="claude",
+            verifier_model="claude-sonnet-4-6",
+            verifier_auth="api_key",
+        )
+        ledger.close()
+
+        return ws
+
+    def test_export_copies_user_files_only(self, runner, tmp_path):
+        """Export should copy user files and exclude internal files."""
+        ws = self._create_fake_workspace(tmp_path)
+        output_dir = tmp_path / "exported"
+
+        with patch("automission.cli.DEFAULT_BASE_DIR", tmp_path / "missions"):
+            result = runner.invoke(
+                cli, ["export", "test-001", "--output", str(output_dir)]
+            )
+
+        assert result.exit_code == 0
+        assert "Exported 3 files" in result.output
+
+        # User files present
+        assert (output_dir / "main.py").exists()
+        assert (output_dir / "src" / "app.py").exists()
+        assert (output_dir / "README.md").exists()
+
+        # Internal files absent
+        assert not (output_dir / ".git").exists()
+        assert not (output_dir / "mission.db").exists()
+        assert not (output_dir / "MISSION.md").exists()
+        assert not (output_dir / "ACCEPTANCE.md").exists()
+        assert not (output_dir / "AUTOMISSION.md").exists()
+        assert not (output_dir / "verify.sh").exists()
+        assert not (output_dir / "skills").exists()
+        assert not (output_dir / "__pycache__").exists()
+
+    def test_export_fails_if_target_exists_without_force(self, runner, tmp_path):
+        """Export should refuse to overwrite existing directory."""
+        ws = self._create_fake_workspace(tmp_path)
+        output_dir = tmp_path / "exported"
+        output_dir.mkdir()
+
+        with patch("automission.cli.DEFAULT_BASE_DIR", tmp_path / "missions"):
+            result = runner.invoke(
+                cli, ["export", "test-001", "--output", str(output_dir)]
+            )
+
+        assert result.exit_code != 0
+        assert "--force" in result.output
+
+    def test_export_with_force_overwrites(self, runner, tmp_path):
+        """Export --force should overwrite existing directory."""
+        ws = self._create_fake_workspace(tmp_path)
+        output_dir = tmp_path / "exported"
+        output_dir.mkdir()
+        (output_dir / "old-file.txt").write_text("stale")
+
+        with patch("automission.cli.DEFAULT_BASE_DIR", tmp_path / "missions"):
+            result = runner.invoke(
+                cli, ["export", "test-001", "--output", str(output_dir), "--force"]
+            )
+
+        assert result.exit_code == 0
+        assert (output_dir / "main.py").exists()
+        assert not (output_dir / "old-file.txt").exists()
+
+    def test_export_mission_not_found(self, runner, tmp_path):
+        """Export should fail gracefully for non-existent mission."""
+        with patch("automission.cli.DEFAULT_BASE_DIR", tmp_path / "missions"):
+            result = runner.invoke(
+                cli, ["export", "nonexistent", "--output", str(tmp_path / "out")]
+            )
+
+        assert result.exit_code != 0
+        assert "not found" in result.output
