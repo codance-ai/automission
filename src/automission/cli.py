@@ -211,6 +211,11 @@ def init(force: bool) -> None:
             else:
                 click.echo("  Skipped image pull.")
 
+    click.echo()
+    click.secho(
+        "Setup complete! Run `automission run --goal '...'` to start.", fg="green"
+    )
+
 
 def _prompt_model(backend: str) -> str:
     """Prompt user to choose a model for the given backend."""
