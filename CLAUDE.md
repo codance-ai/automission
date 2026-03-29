@@ -29,6 +29,26 @@ gh pr merge --squash --auto
 
 Fallback 需要我确认才可以用。不要静默添加 fallback 逻辑。
 
+## Release Process
+
+版本发布必须完成以下三步，缺一不可：
+
+```bash
+# 1. Bump version
+# 修改 src/automission/__init__.py 中的 __version__
+
+# 2. 发布到 PyPI
+uv build && uv publish
+
+# 3. 创建 GitHub Release（不要漏！）
+gh release create v{VERSION} --title "v{VERSION}" --generate-notes
+```
+
+**发布前检查：**
+- `__version__` 和 tag 版本号一致
+- CI 在 main 上是绿的
+- PyPI 和 GitHub release 版本号同步
+
 ## Architecture: Agent Workspace Isolation
 
 Agent 工作空间使用 `git clone --local`（不是 git worktree）：
