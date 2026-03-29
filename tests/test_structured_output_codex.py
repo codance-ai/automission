@@ -39,6 +39,52 @@ def _codex_message_event(structured_data: dict) -> dict:
 SIMPLE_SCHEMA = {"type": "object", "properties": {"x": {"type": "string"}}}
 
 
+class TestOpenAIStrictSchema:
+    def test_rejects_object_without_properties(self):
+        """Dynamic map objects (no properties) must raise ValueError."""
+        from automission.structured_output.codex import _openai_strict_schema
+
+        schema = {"type": "object", "description": "dynamic map"}
+        with pytest.raises(ValueError, match="requires 'properties'"):
+            _openai_strict_schema(schema)
+
+    def test_rejects_nested_object_without_properties(self):
+        """Nested dynamic maps inside properties must also raise."""
+        from automission.structured_output.codex import _openai_strict_schema
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "data": {"type": "object", "description": "dynamic"},
+            },
+        }
+        with pytest.raises(ValueError, match="requires 'properties'"):
+            _openai_strict_schema(schema)
+
+    def test_valid_schema_passes(self):
+        from automission.structured_output.codex import _openai_strict_schema
+
+        schema = {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"id": {"type": "string"}},
+                    },
+                },
+            },
+        }
+        result = _openai_strict_schema(schema)
+        assert result["additionalProperties"] is False
+        assert result["required"] == ["name", "items"]
+        nested = result["properties"]["items"]["items"]
+        assert nested["additionalProperties"] is False
+        assert nested["required"] == ["id"]
+
+
 class TestCodexStructuredOutput:
     def test_successful_query(self):
         backend = CodexStructuredOutput()

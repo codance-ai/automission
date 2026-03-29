@@ -48,8 +48,16 @@ _CRITIC_TOOL = {
                 },
             },
             "group_statuses": {
-                "type": "object",
-                "description": "Per acceptance group: group_id -> completed (true/false)",
+                "type": "array",
+                "description": "Per acceptance group status.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "group_id": {"type": "string"},
+                        "completed": {"type": "boolean"},
+                    },
+                    "required": ["group_id", "completed"],
+                },
             },
             "suggestion": {
                 "type": "string",
@@ -266,11 +274,23 @@ Evaluate each criterion individually. A group is complete when ALL its required 
 Be specific about what passed and what failed. Provide an actionable suggestion for the next attempt."""
 
         try:
-            return self.backend.query(
+            result = self.backend.query(
                 prompt=prompt,
                 model=self.model,
                 json_schema=_CRITIC_JSON_SCHEMA,
             )
+            # Schema uses array for group_statuses (strict output compat);
+            # convert back to dict[str, bool] for downstream consumers.
+            gs = result.get("group_statuses")
+            if isinstance(gs, list):
+                try:
+                    result["group_statuses"] = {
+                        item["group_id"]: item["completed"] for item in gs
+                    }
+                except (KeyError, TypeError) as e:
+                    logger.warning("Malformed group_statuses from critic: %s", e)
+                    return self._basic_critic(gate["passed"], groups)
+            return result
         except CLIResponseError as e:
             logger.error("Critic CLI call failed: %s", e)
             return self._basic_critic(gate["passed"], groups)

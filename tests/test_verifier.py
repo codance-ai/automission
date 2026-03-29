@@ -152,6 +152,62 @@ class TestVerifier:
         assert result.contract_passed is True
         assert result.mission_passed is True
 
+    def test_critic_array_group_statuses_converted_to_dict(
+        self, workspace, sample_groups
+    ):
+        """Critic returns group_statuses as array (strict output format);
+        verifier must convert it to dict[str, bool] for downstream."""
+        script = workspace / "verify.sh"
+        script.write_text("#!/bin/bash\nexit 1\n")
+        script.chmod(0o755)
+
+        critic_output = {
+            "passed_criteria": [],
+            "failed_criteria": [
+                {"criterion": "add works", "passed": False, "detail": "missing"}
+            ],
+            "group_statuses": [
+                {"group_id": "basic", "completed": False},
+            ],
+            "suggestion": "Implement add",
+            "reason": "Not done",
+            "score": 0.3,
+        }
+
+        backend = Mock()
+        backend.query = Mock(return_value=critic_output)
+        verifier = Verifier(backend=backend, verifier_model="claude-sonnet-4-6")
+        result = verifier.evaluate(workspace, script, sample_groups)
+
+        assert result.group_statuses == {"basic": False}
+        assert isinstance(result.group_statuses, dict)
+
+    def test_malformed_group_statuses_falls_back_to_basic(
+        self, workspace, sample_groups
+    ):
+        """Malformed array entries in group_statuses trigger basic_critic fallback."""
+        script = workspace / "verify.sh"
+        script.write_text("#!/bin/bash\nexit 1\n")
+        script.chmod(0o755)
+
+        critic_output = {
+            "passed_criteria": [],
+            "failed_criteria": [],
+            "group_statuses": [{"bad_key": "oops"}],  # missing group_id/completed
+            "suggestion": "",
+            "reason": "",
+            "score": 0.0,
+        }
+
+        backend = Mock()
+        backend.query = Mock(return_value=critic_output)
+        verifier = Verifier(backend=backend, verifier_model="claude-sonnet-4-6")
+        result = verifier.evaluate(workspace, script, sample_groups)
+
+        # Should fall back to basic critic instead of crashing
+        assert result.reason == "Gate verification failed."
+        assert isinstance(result.group_statuses, dict)
+
     def test_critic_cli_failure_falls_back_to_basic(self, workspace, sample_groups):
         script = workspace / "verify.sh"
         script.write_text("#!/bin/bash\nexit 1\n")
