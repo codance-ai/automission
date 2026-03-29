@@ -36,8 +36,8 @@ _SELECT_STYLE = Style(
         ("qmark", "fg:cyan"),
         ("question", "bold"),
         ("pointer", "fg:cyan bold"),
-        ("highlighted", "fg:cyan bold noreverse"),
-        ("selected", "fg:cyan"),
+        ("highlighted", "fg:cyan bold noreverse bg:default"),
+        ("selected", "noreverse"),
         ("answer", "fg:green bold"),
         ("instruction", "fg:#888888"),
         ("text", ""),
@@ -111,11 +111,10 @@ def init(force: bool) -> None:
     agent_backend = questionary.select(
         "Choose agent backend:",
         choices=backends,
-        default="claude",
         qmark="›",
         style=_SELECT_STYLE,
         pointer="›",
-        instruction="",
+        instruction=" ",
     ).ask()
     if agent_backend is None:
         raise SystemExit(0)
@@ -128,11 +127,10 @@ def init(force: bool) -> None:
     planner_backend = questionary.select(
         "Choose planner backend:",
         choices=backends,
-        default="claude",
         qmark="›",
         style=_SELECT_STYLE,
         pointer="›",
-        instruction="",
+        instruction=" ",
     ).ask()
     if planner_backend is None:
         raise SystemExit(0)
@@ -145,11 +143,10 @@ def init(force: bool) -> None:
     use_planner = questionary.select(
         f"Use same settings as planner ({planner_backend} / {planner_model})?",
         choices=["yes", "no"],
-        default="yes",
         qmark="›",
         style=_SELECT_STYLE,
         pointer="›",
-        instruction="",
+        instruction=" ",
     ).ask()
     if use_planner is None:
         raise SystemExit(0)
@@ -159,14 +156,16 @@ def init(force: bool) -> None:
         verifier_model = planner_model
         verifier_auth = planner_auth
     else:
+        verifier_choices = [planner_backend] + [
+            b for b in backends if b != planner_backend
+        ]
         verifier_backend = questionary.select(
             "Choose verifier backend:",
-            choices=backends,
-            default=planner_backend,
+            choices=verifier_choices,
             qmark="›",
             style=_SELECT_STYLE,
             pointer="›",
-            instruction="",
+            instruction=" ",
         ).ask()
         if verifier_backend is None:
             raise SystemExit(0)
@@ -256,11 +255,10 @@ def _prompt_model(backend: str) -> str:
     model = questionary.select(
         f"Model for {backend}:",
         choices=choices,
-        default=models[0],
         qmark="›",
         style=_SELECT_STYLE,
         pointer="›",
-        instruction="",
+        instruction=" ",
     ).ask()
     if model is None:
         raise SystemExit(0)
@@ -284,11 +282,10 @@ def _prompt_auth(backend: str) -> str:
     auth = questionary.select(
         f"Authentication for {backend}:",
         choices=["api_key", "oauth"],
-        default="api_key",
         qmark="›",
         style=_SELECT_STYLE,
         pointer="›",
-        instruction="",
+        instruction=" ",
     ).ask()
     if auth is None:
         raise SystemExit(0)
