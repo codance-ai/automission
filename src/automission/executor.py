@@ -396,36 +396,65 @@ def run_executor(workspace_dir: Path, mission_id: str) -> None:
             if outcome == MissionOutcome.COMPLETED:
                 with Ledger(workspace_dir / "mission.db") as ledger:
                     ledger.update_mission_status(mission_id, MissionOutcome.COMPLETED)
+                    mission = ledger.get_mission(mission_id)
                 event_writer.emit(
-                    "mission_completed", {"mission_id": mission_id, "outcome": outcome}
+                    "mission_completed",
+                    {
+                        "mission_id": mission_id,
+                        "outcome": outcome,
+                        "total_attempts": mission["total_attempts"] if mission else 0,
+                    },
                 )
             elif outcome == MissionOutcome.FAILED:
                 with Ledger(workspace_dir / "mission.db") as ledger:
                     ledger.update_mission_status(mission_id, MissionOutcome.FAILED)
+                    mission = ledger.get_mission(mission_id)
                 event_writer.emit(
-                    "mission_failed", {"mission_id": mission_id, "outcome": outcome}
+                    "mission_failed",
+                    {
+                        "mission_id": mission_id,
+                        "outcome": outcome,
+                        "total_attempts": mission["total_attempts"] if mission else 0,
+                    },
                 )
             elif outcome == MissionOutcome.CANCELLED:
                 with Ledger(workspace_dir / "mission.db") as ledger:
                     ledger.update_mission_status(mission_id, MissionOutcome.CANCELLED)
+                    mission = ledger.get_mission(mission_id)
                 event_writer.emit(
-                    "mission_failed", {"mission_id": mission_id, "outcome": outcome}
+                    "mission_failed",
+                    {
+                        "mission_id": mission_id,
+                        "outcome": outcome,
+                        "total_attempts": mission["total_attempts"] if mission else 0,
+                    },
                 )
             elif outcome == MissionOutcome.RESOURCE_LIMIT:
                 with Ledger(workspace_dir / "mission.db") as ledger:
                     ledger.update_mission_status(
                         mission_id, MissionOutcome.RESOURCE_LIMIT
                     )
+                    mission = ledger.get_mission(mission_id)
                 event_writer.emit(
-                    "mission_failed", {"mission_id": mission_id, "outcome": outcome}
+                    "mission_failed",
+                    {
+                        "mission_id": mission_id,
+                        "outcome": outcome,
+                        "total_attempts": mission["total_attempts"] if mission else 0,
+                    },
                 )
             else:
                 # Unknown outcome — treat as failure
                 with Ledger(workspace_dir / "mission.db") as ledger:
                     ledger.update_mission_status(mission_id, MissionOutcome.FAILED)
+                    mission = ledger.get_mission(mission_id)
                 event_writer.emit(
                     "mission_failed",
-                    {"mission_id": mission_id, "outcome": str(outcome)},
+                    {
+                        "mission_id": mission_id,
+                        "outcome": str(outcome),
+                        "total_attempts": mission["total_attempts"] if mission else 0,
+                    },
                 )
 
         except Exception as exc:

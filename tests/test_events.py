@@ -128,7 +128,7 @@ class TestEventTailer:
         path = tmp_path / "events.jsonl"
         with EventWriter(path) as writer:
             writer.emit("attempt_start", {})
-            writer.emit("mission_completed", {"total_cost": 1.0})
+            writer.emit("mission_completed", {"total_attempts": 1})
             writer.emit("should_not_see", {})
 
         tailer = EventTailer(path)
