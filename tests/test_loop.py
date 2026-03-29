@@ -434,3 +434,131 @@ class TestRunLoop:
         )
         prompt = backend.attempts[0].prompt
         assert "partial.py" in prompt or "uncommitted" in prompt.lower()
+
+
+class TestEventEnrichment:
+    """Test that events contain enriched data for CLI display."""
+
+    def test_verification_event_includes_criteria_and_suggestion(
+        self, tmp_path, fixture_dir
+    ):
+        """Verification event should include passed/failed criteria and suggestion."""
+        from automission.events import EventWriter, EventTailer
+
+        backend = MockBackend(
+            simulate_files={"src/calc.py": "def add(a, b): return a + b\n"},
+        )
+        ws = create_mission(
+            mission_id="evt-001",
+            goal="Build calculator",
+            acceptance_path=fixture_dir / "ACCEPTANCE.md",
+            verify_path=fixture_dir / "verify.sh",
+            backend=backend,
+            workspace_dir=tmp_path / "ws",
+            init_files_dir=fixture_dir / "workspace",
+        )
+        verifier = Verifier()
+        with EventWriter(ws / "events.jsonl") as ew:
+            run_loop(
+                mission_id="evt-001",
+                workdir=ws,
+                backend=backend,
+                verifier=verifier,
+                max_iterations=1,
+                max_cost=10.0,
+                timeout=3600,
+                event_writer=ew,
+            )
+
+        events = list(EventTailer(ws / "events.jsonl").read_existing())
+        verify_events = [e for e in events if e["type"] == "verification"]
+        assert len(verify_events) == 1
+
+        ve = verify_events[0]
+        # Should have structured criteria (dicts, not plain strings)
+        assert "passed_criteria" in ve
+        assert "failed_criteria" in ve
+        assert "suggestion" in ve
+        # Criteria should be dicts with criterion and group keys
+        for c in ve["failed_criteria"] + ve["passed_criteria"]:
+            assert "criterion" in c
+            assert "group" in c
+
+    def test_attempt_end_event_includes_changed_files(
+        self, tmp_path, fixture_dir
+    ):
+        """attempt_end event should include changed_files list."""
+        from automission.events import EventWriter, EventTailer
+
+        backend = MockBackend(
+            simulate_files={"src/calc.py": CALC_PY},
+        )
+        ws = create_mission(
+            mission_id="evt-002",
+            goal="Build calculator",
+            acceptance_path=fixture_dir / "ACCEPTANCE.md",
+            verify_path=fixture_dir / "verify.sh",
+            backend=backend,
+            workspace_dir=tmp_path / "ws",
+            init_files_dir=fixture_dir / "workspace",
+        )
+        verifier = Verifier()
+        with EventWriter(ws / "events.jsonl") as ew:
+            run_loop(
+                mission_id="evt-002",
+                workdir=ws,
+                backend=backend,
+                verifier=verifier,
+                max_iterations=1,
+                max_cost=10.0,
+                timeout=3600,
+                event_writer=ew,
+            )
+
+        events = list(EventTailer(ws / "events.jsonl").read_existing())
+        end_events = [e for e in events if e["type"] == "attempt_end"]
+        assert len(end_events) == 1
+        assert "changed_files" in end_events[0]
+        assert isinstance(end_events[0]["changed_files"], list)
+
+    def test_retry_attempt_start_includes_scope(self, tmp_path, fixture_dir):
+        """attempt_start on retry should include contract scope."""
+        from automission.events import EventWriter, EventTailer
+
+        # First attempt fails (incomplete calc), second attempt should have scope
+        backend = MockBackend(
+            simulate_sequence=[
+                {"src/calc.py": "def add(a, b): return a + b\n"},
+                {"src/calc.py": CALC_PY},
+            ],
+        )
+        ws = create_mission(
+            mission_id="evt-003",
+            goal="Build calculator",
+            acceptance_path=fixture_dir / "ACCEPTANCE.md",
+            verify_path=fixture_dir / "verify.sh",
+            backend=backend,
+            workspace_dir=tmp_path / "ws",
+            init_files_dir=fixture_dir / "workspace",
+        )
+        verifier = Verifier()
+        with EventWriter(ws / "events.jsonl") as ew:
+            run_loop(
+                mission_id="evt-003",
+                workdir=ws,
+                backend=backend,
+                verifier=verifier,
+                max_iterations=3,
+                max_cost=10.0,
+                timeout=3600,
+                event_writer=ew,
+            )
+
+        events = list(EventTailer(ws / "events.jsonl").read_existing())
+        start_events = [e for e in events if e["type"] == "attempt_start"]
+        assert len(start_events) >= 2
+        # First attempt should NOT have scope
+        assert "scope" not in start_events[0] or start_events[0].get("scope") is None
+        # Second attempt SHOULD have scope
+        assert "scope" in start_events[1]
+        assert start_events[1]["scope"]  # non-empty

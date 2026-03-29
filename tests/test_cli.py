@@ -1029,3 +1029,202 @@ class TestExportCommand:
 
         assert result.exit_code != 0
         assert "not found" in result.output
+
+
+# ── Rich output helpers ──
+
+
+class TestFmtChangedFiles:
+    """Tests for _fmt_changed_files helper."""
+
+    def test_empty(self):
+        from automission.cli import _fmt_changed_files
+
+        assert _fmt_changed_files([]) == ""
+
+    def test_single_file(self):
+        from automission.cli import _fmt_changed_files
+
+        result = _fmt_changed_files(["src/main.py"])
+        assert "main.py" in result
+        assert "(1 file)" in result
+
+    def test_multiple_files(self):
+        from automission.cli import _fmt_changed_files
+
+        result = _fmt_changed_files(["src/a.py", "src/b.py", "tests/test_c.py"])
+        assert "a.py" in result
+        assert "b.py" in result
+        assert "test_c.py" in result
+        assert "(3 files)" in result
+
+    def test_truncation(self):
+        from automission.cli import _fmt_changed_files
+
+        files = [f"src/file{i}.py" for i in range(8)]
+        result = _fmt_changed_files(files, max_shown=3)
+        assert "+5 more" in result
+        assert "(8 files)" in result
+
+
+class TestRenderCriteria:
+    """Tests for _render_criteria helper."""
+
+    def test_failed_and_passed(self, capsys):
+        from automission.cli import _render_criteria
+
+        event = {
+            "failed_criteria": [
+                {"criterion": "CLI rejects missing expression", "group": "input_handling"},
+            ],
+            "passed_criteria": [
+                {"criterion": "1+1 returns 2", "group": "basic_arithmetic"},
+            ],
+        }
+        _render_criteria(event)
+        out = capsys.readouterr().out
+        assert "✗" in out
+        assert "[input_handling]" in out
+        assert "CLI rejects missing expression" in out
+        assert "✓" in out
+        assert "[basic_arithmetic]" in out
+        assert "1+1 returns 2" in out
+
+    def test_verbose_detail(self, capsys):
+        from automission.cli import _render_criteria
+
+        event = {
+            "failed_criteria": [
+                {
+                    "criterion": "Division by zero",
+                    "group": "error_handling",
+                    "detail": "got exit code 0",
+                },
+            ],
+            "passed_criteria": [],
+        }
+        _render_criteria(event, verbose=True)
+        out = capsys.readouterr().out
+        assert "→ got exit code 0" in out
+
+    def test_no_group(self, capsys):
+        from automission.cli import _render_criteria
+
+        event = {
+            "failed_criteria": [{"criterion": "some criterion", "group": ""}],
+            "passed_criteria": [],
+        }
+        _render_criteria(event)
+        out = capsys.readouterr().out
+        assert "some criterion" in out
+        # No [group] tag when group is empty
+        assert "[]" not in out
+
+    def test_empty_criteria(self, capsys):
+        from automission.cli import _render_criteria
+
+        _render_criteria({"failed_criteria": [], "passed_criteria": []})
+        out = capsys.readouterr().out
+        assert out == ""
+
+
+class TestRenderEventRichOutput:
+    """Tests for enriched _render_event output."""
+
+    def test_attempt_start_with_scope(self, capsys):
+        from automission.cli import _render_event
+
+        event = {
+            "type": "attempt_start",
+            "agent_id": "agent-1",
+            "attempt": 2,
+            "scope": "Fix: input validation",
+        }
+        _render_event(event)
+        out = capsys.readouterr().out
+        assert "agent-1" in out
+        assert "#2" in out
+        assert "focus: Fix: input validation" in out
+
+    def test_attempt_start_without_scope(self, capsys):
+        from automission.cli import _render_event
+
+        event = {"type": "attempt_start", "agent_id": "agent-1", "attempt": 1}
+        _render_event(event)
+        out = capsys.readouterr().out
+        assert "#1 ..." in out
+        assert "focus" not in out
+
+    def test_attempt_end_with_changed_files(self, capsys):
+        from automission.cli import _render_event
+
+        event = {
+            "type": "attempt_end",
+            "status": "completed",
+            "token_input": 50000,
+            "token_output": 10000,
+            "changed_files": ["calculator.py", "tests/test_calc.py"],
+        }
+        _render_event(event)
+        out = capsys.readouterr().out
+        assert "completed" in out
+        assert "60.0k tokens" in out
+        assert "changed:" in out
+        assert "calculator.py" in out
+
+    def test_attempt_end_no_changed_files(self, capsys):
+        from automission.cli import _render_event
+
+        event = {
+            "type": "attempt_end",
+            "status": "completed",
+            "token_input": 1000,
+            "token_output": 500,
+            "changed_files": [],
+        }
+        _render_event(event)
+        out = capsys.readouterr().out
+        assert "changed" not in out
+
+    def test_verification_with_criteria_and_suggestion(self, capsys):
+        from automission.cli import _render_event
+
+        event = {
+            "type": "verification",
+            "passed": False,
+            "score": 0.4,
+            "failed_criteria": [
+                {"criterion": "CLI rejects missing expression", "group": "input_handling"},
+            ],
+            "passed_criteria": [
+                {"criterion": "1+1 returns 2", "group": "basic_arithmetic"},
+            ],
+            "suggestion": "Fix subprocess call to use relative path",
+        }
+        _render_event(event)
+        out = capsys.readouterr().out
+        assert "FAIL" in out
+        assert "score=0.4" in out
+        assert "✗" in out
+        assert "[input_handling]" in out
+        assert "✓" in out
+        assert "[basic_arithmetic]" in out
+        assert "suggestion: Fix subprocess call" in out
+
+    def test_verification_pass_no_suggestion(self, capsys):
+        from automission.cli import _render_event
+
+        event = {
+            "type": "verification",
+            "passed": True,
+            "score": 1.0,
+            "failed_criteria": [],
+            "passed_criteria": [
+                {"criterion": "All tests pass", "group": "testing"},
+            ],
+            "suggestion": "",
+        }
+        _render_event(event)
+        out = capsys.readouterr().out
+        assert "PASS" in out
+        assert "suggestion" not in out
