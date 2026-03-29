@@ -10,6 +10,9 @@ logger = logging.getLogger(__name__)
 
 DOCKER_IMAGE_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_/:\-\.]*$")
 
+# Must match the non-root user created in Dockerfile (USER agent).
+CONTAINER_HOME = "/home/agent"
+
 
 def build_docker_cmd(
     image: str,
