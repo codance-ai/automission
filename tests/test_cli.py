@@ -859,7 +859,13 @@ class TestEnsureDockerBeforePlanner:
 
 
 class TestInitCommand:
-    _DEFAULT_ANSWERS = ["claude", "claude-sonnet-4-6", "claude", "claude-sonnet-4-6", "yes"]
+    _DEFAULT_ANSWERS = [
+        "claude",
+        "claude-sonnet-4-6",
+        "claude",
+        "claude-sonnet-4-6",
+        "yes",
+    ]
 
     def test_init_creates_config(self, runner, tmp_path):
         config_path = tmp_path / "config.toml"

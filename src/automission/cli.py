@@ -664,8 +664,6 @@ def _edit_plan_draft(draft):
                 return draft
 
 
-
-
 def _collect_changed_files(ledger: Ledger, mission_id: str, ws: Path) -> list[dict]:
     """Aggregate changed files from all attempts and classify as new/modified."""
     attempts = ledger.get_attempts(mission_id)
