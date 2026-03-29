@@ -37,6 +37,8 @@ _SELECT_STYLE = Style(
         ("pointer", "fg:cyan bold"),
         ("highlighted", "fg:cyan bold"),
         ("selected", "fg:cyan"),
+        ("answer", "fg:green bold"),
+        ("instruction", "fg:#888888"),
         ("text", ""),
     ]
 )
@@ -111,6 +113,7 @@ def init(force: bool) -> None:
         qmark="›",
         style=_SELECT_STYLE,
         pointer="›",
+        instruction="",
     ).ask()
     if agent_backend is None:
         raise SystemExit(0)
@@ -127,6 +130,7 @@ def init(force: bool) -> None:
         qmark="›",
         style=_SELECT_STYLE,
         pointer="›",
+        instruction="",
     ).ask()
     if planner_backend is None:
         raise SystemExit(0)
@@ -143,6 +147,7 @@ def init(force: bool) -> None:
         qmark="›",
         style=_SELECT_STYLE,
         pointer="›",
+        instruction="",
     ).ask()
     if use_planner is None:
         raise SystemExit(0)
@@ -250,6 +255,7 @@ def _prompt_model(backend: str) -> str:
         qmark="›",
         style=_SELECT_STYLE,
         pointer="›",
+        instruction="",
     ).ask()
     if model is None:
         raise SystemExit(0)
@@ -277,6 +283,7 @@ def _prompt_auth(backend: str) -> str:
         qmark="›",
         style=_SELECT_STYLE,
         pointer="›",
+        instruction="",
     ).ask()
     if auth is None:
         raise SystemExit(0)
