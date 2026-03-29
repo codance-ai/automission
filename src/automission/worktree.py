@@ -1,8 +1,9 @@
-"""Git worktree lifecycle management for multi-agent isolation."""
+"""Agent workspace lifecycle management via local clones."""
 
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -10,44 +11,63 @@ logger = logging.getLogger(__name__)
 
 
 def create_agent_worktree(mission_dir: Path, agent_id: str) -> Path:
-    """Create a git worktree for an agent.
+    """Create an isolated workspace for an agent via git clone --local.
 
-    Creates branch ``{agent_id}-work`` from HEAD (ignores error if it already
-    exists) and adds a worktree at ``mission_dir / "worktrees" / agent_id``
-    checked out on that branch.
+    Clones ``mission_dir`` to ``mission_dir / "worktrees" / agent_id``,
+    then checks out a new branch ``{agent_id}-work``.
 
-    Returns the worktree path.
+    The clone is self-contained (real .git directory) and can be safely
+    mounted into Docker containers.
+
+    Returns the workspace path.
     """
-    branch = f"{agent_id}-work"
-    worktree_path = mission_dir / "worktrees" / agent_id
+    workspace_path = mission_dir / "worktrees" / agent_id
 
-    # Create branch from HEAD — ignore "already exists" errors
-    subprocess.run(
-        ["git", "branch", branch],
-        cwd=mission_dir,
-        capture_output=True,
-    )
+    # Remove stale workspace from previous run (defensive)
+    if workspace_path.exists():
+        shutil.rmtree(workspace_path)
 
-    # Add worktree
+    # Clone mission_dir → workspace (hardlinks objects, fast)
     subprocess.run(
-        ["git", "worktree", "add", str(worktree_path), branch],
-        cwd=mission_dir,
+        ["git", "clone", "--local", str(mission_dir), str(workspace_path)],
         capture_output=True,
         check=True,
     )
 
-    logger.info("Created worktree for %s at %s", agent_id, worktree_path)
-    return worktree_path
+    # Create and checkout agent work branch
+    subprocess.run(
+        ["git", "checkout", "-b", f"{agent_id}-work"],
+        cwd=workspace_path,
+        capture_output=True,
+        check=True,
+    )
+
+    logger.info("Created agent workspace for %s at %s", agent_id, workspace_path)
+    return workspace_path
 
 
 def sync_from_main(worktree_dir: Path) -> bool:
-    """Rebase the worktree branch onto main.
+    """Fetch latest main from origin and rebase onto it.
 
-    Returns True on success.  If the rebase fails (e.g. conflicts), aborts it
+    Returns True on success. If the rebase fails (e.g. conflicts), aborts
     and returns False.
     """
+    # Fetch latest main from origin (= mission_dir)
+    fetch = subprocess.run(
+        ["git", "fetch", "origin", "main"],
+        cwd=worktree_dir,
+        capture_output=True,
+    )
+    if fetch.returncode != 0:
+        logger.warning(
+            "Fetch failed in %s: %s",
+            worktree_dir,
+            fetch.stderr.decode(errors="replace"),
+        )
+        return False
+
     result = subprocess.run(
-        ["git", "rebase", "main"],
+        ["git", "rebase", "origin/main"],
         cwd=worktree_dir,
         capture_output=True,
     )
@@ -65,27 +85,13 @@ def sync_from_main(worktree_dir: Path) -> bool:
         )
         return False
 
-    logger.info("Synced worktree %s from main", worktree_dir)
+    logger.info("Synced workspace %s from origin/main", worktree_dir)
     return True
 
 
 def cleanup_worktree(mission_dir: Path, agent_id: str) -> None:
-    """Remove an agent's worktree and delete its branch."""
-    worktree_path = mission_dir / "worktrees" / agent_id
-    branch = f"{agent_id}-work"
-
-    subprocess.run(
-        ["git", "worktree", "remove", "--force", str(worktree_path)],
-        cwd=mission_dir,
-        capture_output=True,
-        check=True,
-    )
-    logger.info("Removed worktree at %s", worktree_path)
-
-    subprocess.run(
-        ["git", "branch", "-D", branch],
-        cwd=mission_dir,
-        capture_output=True,
-        check=True,
-    )
-    logger.info("Deleted branch %s", branch)
+    """Remove an agent's workspace directory."""
+    workspace_path = mission_dir / "worktrees" / agent_id
+    if workspace_path.exists():
+        shutil.rmtree(workspace_path)
+        logger.info("Removed agent workspace at %s", workspace_path)

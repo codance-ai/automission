@@ -1,4 +1,4 @@
-"""Tests for git worktree lifecycle management."""
+"""Tests for agent workspace lifecycle (clone-based)."""
 
 import subprocess
 
@@ -56,6 +56,27 @@ class TestCreateAgentWorktree:
         assert wt1.exists()
         assert wt2.exists()
 
+    def test_clone_is_self_contained(self, git_repo):
+        """The .git must be a directory (not a file), proving self-containment."""
+        from automission.worktree import create_agent_worktree
+
+        wt_path = create_agent_worktree(git_repo, "agent-1")
+        git_path = wt_path / ".git"
+        assert git_path.is_dir(), ".git should be a directory, not a file"
+
+    def test_clone_has_origin_pointing_to_mission_dir(self, git_repo):
+        from automission.worktree import create_agent_worktree
+
+        wt_path = create_agent_worktree(git_repo, "agent-1")
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=wt_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert str(git_repo.resolve()) in result.stdout.strip()
+
 
 class TestSyncFromMain:
     def test_sync_picks_up_new_commits(self, git_repo):
@@ -75,7 +96,7 @@ class TestSyncFromMain:
             check=True,
         )
 
-        # Sync worktree
+        # Sync
         assert sync_from_main(wt_path) is True
         assert (wt_path / "new_file.txt").exists()
 

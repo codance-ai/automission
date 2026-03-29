@@ -59,29 +59,18 @@ def reconcile_stale_state(workspace_dir: Path, mission_id: str) -> None:
         ledger.update_mission_status(mission_id, "running")
         logger.info("Reset mission status to 'running'")
 
-    # 5. Clean up stale worktrees
+    # 5. Clean up stale agent workspaces
     worktrees_dir = workspace_dir / "worktrees"
     if worktrees_dir.exists():
         for wt_path in worktrees_dir.iterdir():
             if wt_path.is_dir():
                 try:
-                    # Try git worktree remove first (best-effort)
-                    import subprocess
-
-                    subprocess.run(
-                        ["git", "worktree", "remove", "--force", str(wt_path)],
-                        cwd=workspace_dir,
-                        capture_output=True,
-                    )
+                    shutil.rmtree(wt_path)
+                    logger.info("Removed stale agent workspace: %s", wt_path)
                 except Exception as exc:
-                    logger.debug("git worktree remove failed for %s: %s", wt_path, exc)
-                # Fall back to shutil.rmtree if directory still exists
-                if wt_path.exists():
-                    try:
-                        shutil.rmtree(wt_path)
-                        logger.info("Removed stale worktree directory: %s", wt_path)
-                    except Exception as exc:
-                        logger.warning("Failed to remove worktree %s: %s", wt_path, exc)
+                    logger.warning(
+                        "Failed to remove agent workspace %s: %s", wt_path, exc
+                    )
 
 
 def _heartbeat_loop(

@@ -20,23 +20,17 @@ def atomic_merge(
     agent_id: str,
     ledger: Ledger,
 ) -> MergeResult:
-    """Atomically merge an agent's worktree branch into main.
+    """Atomically merge an agent's clone workspace into main.
 
     Steps:
     1. Acquire merge lock (prevents concurrent merges)
     2. Rebase onto main (catch conflicts early)
     3. Regression verify via verify.sh (never poison main)
-    4. Fast-forward main via ``git merge --ff-only {branch}`` in mission_dir
+    4. Fetch agent's HEAD from clone, fast-forward main in mission_dir
     5. Return commit hash
 
     The merge lock is always released in a finally block.
-
-    The original spec suggested ``git push . {branch}:main`` from the worktree,
-    but that hits ``receive.denyCurrentBranch`` because mission_dir has main
-    checked out.  ``git merge --ff-only`` from mission_dir achieves the same
-    atomic fast-forward and updates the working tree in one step.
     """
-    branch = f"{agent_id}-work"
 
     # Step 1: Acquire merge lock
     if not ledger.acquire_merge_lock(agent_id):
@@ -63,9 +57,27 @@ def atomic_merge(
                     rejected_reason="Regression verification failed",
                 )
 
-        # Step 4: Fast-forward main
+        # Step 4: Fetch agent's HEAD into mission_dir and fast-forward.
+        # Read the fetched SHA explicitly to avoid FETCH_HEAD races.
+        fetch_result = subprocess.run(
+            ["git", "fetch", str(worktree_dir.resolve()), "HEAD"],
+            cwd=mission_dir,
+            capture_output=True,
+        )
+        if fetch_result.returncode != 0:
+            stderr = fetch_result.stderr.decode(errors="replace")
+            logger.error("Fetch from clone failed: %s", stderr)
+            return MergeResult(
+                success=False,
+                rejected_reason=f"Fetch failed: {stderr.strip()}",
+            )
+
+        # Read SHA from FETCH_HEAD immediately — resilient to later git state changes
+        fetch_head_file = mission_dir / ".git" / "FETCH_HEAD"
+        fetch_sha = fetch_head_file.read_text().split()[0]
+
         ff_result = subprocess.run(
-            ["git", "merge", "--ff-only", branch],
+            ["git", "merge", "--ff-only", fetch_sha],
             cwd=mission_dir,
             capture_output=True,
         )
