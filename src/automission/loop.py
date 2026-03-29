@@ -628,8 +628,8 @@ def _load_last_verification(
         return None
     try:
         return VerificationResult.from_json(vr_raw)
-    except (json.JSONDecodeError, KeyError):
-        logger.warning("Could not parse last verification result for resume")
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.warning("Could not parse last verification result for resume: %s", e)
         return None
 
 

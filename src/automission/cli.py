@@ -942,8 +942,8 @@ def _render_attempt_log(
             ][:3]
             if failed_groups:
                 header += f" \u2014 focus: {', '.join(failed_groups)}"
-        except (json.JSONDecodeError, KeyError):
-            pass
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.debug("Could not parse prev verification result: %s", e)
     click.echo(header)
 
     # Changed files
@@ -966,8 +966,8 @@ def _render_attempt_log(
             _render_criteria(criteria_data, verbose=verbose)
             if verbose and vr.critic.root_cause:
                 click.echo(f"    root cause: {vr.critic.root_cause}")
-        except (json.JSONDecodeError, KeyError):
-            pass
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.debug("Could not parse verification result: %s", e)
 
 
 def _render_event(event: dict) -> None:

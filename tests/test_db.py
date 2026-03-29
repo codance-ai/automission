@@ -147,7 +147,7 @@ class TestAttempts:
             token_output=3000,
             changed_files=["src/calc.py"],
             verification_passed=True,
-            verification_result='{"contract_passed": true}',
+            verification_result='{"harness": {"passed": true, "exit_code": 0}, "critic": {"summary": "ok", "group_statuses": {}}}',
             commit_hash="abc123",
         )
 
@@ -173,7 +173,7 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=False,
-            verification_result="{}",
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
             commit_hash="def456",
         )
         ledger.record_attempt(
@@ -189,7 +189,7 @@ class TestAttempts:
             token_output=2500,
             changed_files=["calc.py"],
             verification_passed=True,
-            verification_result="{}",
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
             commit_hash="ghi789",
         )
 
@@ -216,7 +216,7 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=True,
-            verification_result="{}",
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
             commit_hash="abc",
         )
         mission = ledger.get_mission("m1")
@@ -239,7 +239,7 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=False,
-            verification_result="{}",
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
             commit_hash="aaa",
         )
         # Attempt 2: passed
@@ -256,7 +256,7 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=True,
-            verification_result="{}",
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
             commit_hash="bbb",
         )
         # Attempt 3: failed again
@@ -273,7 +273,7 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=False,
-            verification_result="{}",
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
             commit_hash="ccc",
         )
         best = ledger.get_best_attempt("m1")
@@ -295,7 +295,7 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=False,
-            verification_result="{}",
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
             commit_hash="aaa",
         )
         assert ledger.get_best_attempt("m1") is None
