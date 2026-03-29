@@ -361,20 +361,23 @@ class TestSingleAgentFrontierLoop:
             init_files_dir=fixture_dir / "workspace",
         )
 
-        from automission.cli import _run_single_agent_frontier
+        from automission.executor import _run_single_agent_frontier
+        from automission.events import EventWriter
         from automission.verifier import Verifier
 
         verifier = Verifier()
-        outcome = _run_single_agent_frontier(
-            mission_id="dag-001",
-            ws=ws,
-            backend=backend,
-            verifier=verifier,
-            max_iterations=20,
-            max_cost=10.0,
-            timeout=3600,
-            cancel_flag=lambda: False,
-        )
+        with EventWriter(ws / "events.jsonl") as ew:
+            outcome = _run_single_agent_frontier(
+                mission_id="dag-001",
+                ws=ws,
+                backend=backend,
+                verifier=verifier,
+                max_iterations=20,
+                max_cost=10.0,
+                timeout=3600,
+                cancel_flag=lambda: False,
+                event_writer=ew,
+            )
 
         assert outcome == "completed"
 
@@ -410,20 +413,23 @@ class TestSingleAgentFrontierLoop:
             init_files_dir=fixture_dir / "workspace",
         )
 
-        from automission.cli import _run_single_agent_frontier
+        from automission.executor import _run_single_agent_frontier
+        from automission.events import EventWriter
         from automission.verifier import Verifier
 
         verifier = Verifier()
-        _run_single_agent_frontier(
-            mission_id="dag-002",
-            ws=ws,
-            backend=backend,
-            verifier=verifier,
-            max_iterations=20,
-            max_cost=10.0,
-            timeout=3600,
-            cancel_flag=lambda: False,
-        )
+        with EventWriter(ws / "events.jsonl") as ew:
+            _run_single_agent_frontier(
+                mission_id="dag-002",
+                ws=ws,
+                backend=backend,
+                verifier=verifier,
+                max_iterations=20,
+                max_cost=10.0,
+                timeout=3600,
+                cancel_flag=lambda: False,
+                event_writer=ew,
+            )
 
         # The first attempt's prompt should mention "Current Focus"
         # with basic_operations (the first frontier group)

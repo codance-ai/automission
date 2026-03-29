@@ -41,6 +41,10 @@ class Ledger:
                 status TEXT NOT NULL DEFAULT 'running',
                 backend TEXT NOT NULL DEFAULT 'claude',
                 model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
+                backend_auth TEXT NOT NULL DEFAULT 'api_key',
+                verifier_backend TEXT NOT NULL DEFAULT 'claude',
+                verifier_model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
+                verifier_auth TEXT NOT NULL DEFAULT 'api_key',
                 agents INTEGER NOT NULL DEFAULT 1,
                 max_iterations INTEGER NOT NULL DEFAULT 20,
                 max_cost REAL NOT NULL DEFAULT 10.0,
@@ -131,6 +135,10 @@ class Ledger:
         goal: str,
         backend: str = "claude",
         model: str = "claude-sonnet-4-6",
+        backend_auth: str = "api_key",
+        verifier_backend: str = "claude",
+        verifier_model: str = "claude-sonnet-4-6",
+        verifier_auth: str = "api_key",
         agents: int = 1,
         max_iterations: int = 20,
         max_cost: float = 10.0,
@@ -138,13 +146,19 @@ class Ledger:
         docker_image: str = "ghcr.io/codance-ai/automission:latest",
     ) -> None:
         self.conn.execute(
-            """INSERT INTO missions (id, goal, backend, model, agents, max_iterations, max_cost, timeout, docker_image)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO missions (id, goal, backend, model, backend_auth,
+               verifier_backend, verifier_model, verifier_auth,
+               agents, max_iterations, max_cost, timeout, docker_image)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 mission_id,
                 goal,
                 backend,
                 model,
+                backend_auth,
+                verifier_backend,
+                verifier_model,
+                verifier_auth,
                 agents,
                 max_iterations,
                 max_cost,

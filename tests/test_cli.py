@@ -61,24 +61,22 @@ class TestRunCommand:
         result = runner.invoke(cli, ["run"])
         assert result.exit_code != 0
 
-    @patch("automission.cli._run_mission")
-    def test_run_with_minimal_args(self, mock_run, runner, fixture_dir):
-        mock_run.return_value = (True, "test-001", "completed", Path("/tmp/fake-ws"))
-        runner.invoke(
-            cli,
-            [
-                "run",
-                "--goal",
-                "Build calculator",
-                "--acceptance",
-                str(fixture_dir / "ACCEPTANCE.md"),
-                "--verify",
-                str(fixture_dir / "verify.sh"),
-            ],
-        )
-        # _run_mission is kept intact but run command no longer calls it directly
-        # Test the daemon path instead
-        assert True  # _run_mission is tested separately
+    def test_run_with_minimal_args(self, runner, fixture_dir):
+        mocks = _mock_daemon_run()
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+            result = runner.invoke(
+                cli,
+                [
+                    "run",
+                    "--goal",
+                    "Build calculator",
+                    "--acceptance",
+                    str(fixture_dir / "ACCEPTANCE.md"),
+                    "--verify",
+                    str(fixture_dir / "verify.sh"),
+                ],
+            )
+            assert result.exit_code == 0
 
     def test_run_with_minimal_args_daemon(self, runner, fixture_dir):
         mocks = _mock_daemon_run()
@@ -124,11 +122,32 @@ class TestRunCommand:
             )
             assert result.exit_code == 0
 
-    @patch("automission.cli._run_mission")
-    def test_run_with_all_flags(self, mock_run, runner, fixture_dir):
-        mock_run.return_value = (True, "test-001", "completed", Path("/tmp/fake-ws"))
-        # _run_mission still exists but run command uses daemon path
-        assert True
+    def test_run_with_all_flags(self, runner, fixture_dir):
+        mocks = _mock_daemon_run()
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+            result = runner.invoke(
+                cli,
+                [
+                    "run",
+                    "--goal",
+                    "Build calculator",
+                    "--acceptance",
+                    str(fixture_dir / "ACCEPTANCE.md"),
+                    "--verify",
+                    str(fixture_dir / "verify.sh"),
+                    "--agents",
+                    "1",
+                    "--max-iterations",
+                    "10",
+                    "--max-cost",
+                    "5.0",
+                    "--timeout",
+                    "1800",
+                    "--backend",
+                    "claude",
+                ],
+            )
+            assert result.exit_code == 0
 
 
 class TestRunModelFlag:
@@ -397,12 +416,12 @@ class TestInitInteractiveFlow:
     def test_claude_defaults_no_auth_prompt(self, runner, tmp_path):
         """Choosing claude for both backends skips auth prompts entirely."""
         config_path = tmp_path / "config.toml"
-        # Flow: backend → model → (auth skipped for claude) × 2
+        # Flow: agent backend → model → planner backend → model → verifier "yes"
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
             mock_questionary_select(
-                ["claude", "claude-sonnet-4-6", "claude", "claude-sonnet-4-6"]
+                ["claude", "claude-sonnet-4-6", "claude", "claude-sonnet-4-6", "yes"]
             ),
         ):
             mock_run.side_effect = FileNotFoundError()  # docker not available
@@ -413,12 +432,12 @@ class TestInitInteractiveFlow:
     def test_codex_agent_oauth_runs_login(self, runner, tmp_path):
         """Selecting codex + oauth triggers 'codex login'."""
         config_path = tmp_path / "config.toml"
-        # Flow: backend=codex → model → auth=oauth, backend=claude → model
+        # Flow: backend=codex → model → auth=oauth, backend=claude → model, verifier "yes"
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
             mock_questionary_select(
-                ["codex", "gpt-5.4", "oauth", "claude", "claude-sonnet-4-6"]
+                ["codex", "gpt-5.4", "oauth", "claude", "claude-sonnet-4-6", "yes"]
             ),
         ):
             mock_run.side_effect = [
@@ -436,7 +455,7 @@ class TestInitInteractiveFlow:
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
             mock_questionary_select(
-                ["codex", "gpt-5.4", "api_key", "claude", "claude-sonnet-4-6"]
+                ["codex", "gpt-5.4", "api_key", "claude", "claude-sonnet-4-6", "yes"]
             ),
         ):
             mock_run.side_effect = FileNotFoundError()  # docker not available
@@ -447,7 +466,7 @@ class TestInitInteractiveFlow:
     def test_gemini_planner_oauth(self, runner, tmp_path):
         """Selecting gemini as planner + oauth triggers gemini OAuth flow."""
         config_path = tmp_path / "config.toml"
-        # Flow: backend=claude → model, backend=gemini → model → auth=oauth
+        # Flow: backend=claude → model, backend=gemini → model → auth=oauth, verifier "yes"
         with (
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
@@ -458,6 +477,7 @@ class TestInitInteractiveFlow:
                     "gemini",
                     "gemini-3.1-pro-preview",
                     "oauth",
+                    "yes",
                 ]
             ),
         ):
@@ -476,7 +496,7 @@ class TestInitInteractiveFlow:
             patch("automission.cli.CONFIG_PATH", config_path),
             patch("subprocess.run") as mock_run,
             mock_questionary_select(
-                ["codex", "gpt-5.4", "oauth", "claude", "claude-sonnet-4-6"]
+                ["codex", "gpt-5.4", "oauth", "claude", "claude-sonnet-4-6", "yes"]
             ),
         ):
             mock_run.side_effect = FileNotFoundError()
@@ -498,6 +518,7 @@ class TestInitInteractiveFlow:
                     "gemini",
                     "gemini-3-flash-preview",
                     "api_key",
+                    "yes",  # verifier: same as planner
                 ]
             ),
         ):
@@ -513,6 +534,39 @@ class TestInitInteractiveFlow:
         assert data["planner"]["backend"] == "gemini"
         assert data["planner"]["model"] == "gemini-3-flash-preview"
         assert data["planner"]["auth"] == "api_key"
+        # Verifier should match planner when "yes" is selected
+        assert data["verifier"]["backend"] == "gemini"
+        assert data["verifier"]["model"] == "gemini-3-flash-preview"
+        assert data["verifier"]["auth"] == "api_key"
+
+    def test_config_verifier_independent(self, runner, tmp_path):
+        """When user says 'no', verifier gets its own backend/model/auth."""
+        config_path = tmp_path / "config.toml"
+        with (
+            patch("automission.cli.CONFIG_PATH", config_path),
+            patch("subprocess.run") as mock_run,
+            mock_questionary_select(
+                [
+                    "claude",
+                    "claude-sonnet-4-6",  # agent
+                    "claude",
+                    "claude-sonnet-4-6",  # planner
+                    "no",  # verifier: configure separately
+                    "gemini",
+                    "gemini-3-flash-preview",
+                    "api_key",  # verifier config
+                ]
+            ),
+        ):
+            mock_run.side_effect = FileNotFoundError()
+            result = runner.invoke(cli, ["init"])
+        assert result.exit_code == 0
+        import tomllib
+
+        data = tomllib.loads(config_path.read_text())
+        assert data["verifier"]["backend"] == "gemini"
+        assert data["verifier"]["model"] == "gemini-3-flash-preview"
+        assert data["verifier"]["auth"] == "api_key"
 
     def test_custom_model_via_other(self, runner, tmp_path):
         """Selecting 'Other (type manually)' allows entering a custom model name."""
@@ -526,6 +580,7 @@ class TestInitInteractiveFlow:
                     "Other (type manually)",
                     "claude",
                     "claude-sonnet-4-6",
+                    "yes",
                 ]
             ),
             patch("automission.cli.questionary.text") as mock_text,
@@ -804,7 +859,7 @@ class TestEnsureDockerBeforePlanner:
 
 
 class TestInitCommand:
-    _DEFAULT_ANSWERS = ["claude", "claude-sonnet-4-6", "claude", "claude-sonnet-4-6"]
+    _DEFAULT_ANSWERS = ["claude", "claude-sonnet-4-6", "claude", "claude-sonnet-4-6", "yes"]
 
     def test_init_creates_config(self, runner, tmp_path):
         config_path = tmp_path / "config.toml"

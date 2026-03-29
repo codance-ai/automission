@@ -186,6 +186,7 @@ class TestGenerateDefaultConfig:
         assert "defaults" in data
         assert "keys" in data
         assert "planner" in data
+        assert "verifier" in data
         assert "docker" in data
 
     def test_default_values(self, config_dir):
@@ -203,6 +204,9 @@ class TestGenerateDefaultConfig:
         assert data["docker"]["image"] == "ghcr.io/codance-ai/automission:latest"
         assert data["planner"]["backend"] == "claude"
         assert data["planner"]["auth"] == "api_key"
+        assert data["verifier"]["backend"] == "claude"
+        assert data["verifier"]["model"] == "claude-sonnet-4-6"
+        assert data["verifier"]["auth"] == "api_key"
 
 
 class TestResolveAuthMethod:

@@ -121,7 +121,33 @@ def init(force: bool) -> None:
     planner_model = _prompt_model(planner_backend)
     planner_auth = _prompt_auth(planner_backend)
 
-    # ── Step 3: Write config ──
+    # ── Step 3: Verifier ──
+    click.echo()
+    click.echo("Step 3: Verifier")
+    use_planner = questionary.select(
+        f"  Use same settings as planner ({planner_backend} / {planner_model})?",
+        choices=["yes", "no"],
+        default="yes",
+    ).ask()
+    if use_planner is None:
+        raise SystemExit(0)
+
+    if use_planner == "yes":
+        verifier_backend = planner_backend
+        verifier_model = planner_model
+        verifier_auth = planner_auth
+    else:
+        verifier_backend = questionary.select(
+            "  Choose verifier backend:",
+            choices=backends,
+            default=planner_backend,
+        ).ask()
+        if verifier_backend is None:
+            raise SystemExit(0)
+        verifier_model = _prompt_model(verifier_backend)
+        verifier_auth = _prompt_auth(verifier_backend)
+
+    # ── Step 4: Write config ──
     click.echo()
     already_existed = CONFIG_PATH.exists()
     generate_default_config(
@@ -132,6 +158,9 @@ def init(force: bool) -> None:
         planner_backend=planner_backend,
         planner_auth=planner_auth,
         planner_model=planner_model,
+        verifier_backend=verifier_backend,
+        verifier_auth=verifier_auth,
+        verifier_model=verifier_model,
     )
     action = "Overwrote" if force and already_existed else "Created"
     click.echo(f"{action} config: {CONFIG_PATH} (mode 600)")
@@ -139,9 +168,9 @@ def init(force: bool) -> None:
         "Set API keys there or via environment variables (ANTHROPIC_API_KEY, etc.)"
     )
 
-    # ── Step 4: Docker image ──
+    # ── Step 5: Docker image ──
     click.echo()
-    click.echo("Step 4: Docker image")
+    click.echo("Step 5: Docker image")
     docker_ok = False
     try:
         subprocess.run(
@@ -298,6 +327,17 @@ def _run_oauth_login(backend: str) -> None:
     type=click.Choice(["claude", "codex", "gemini"]),
     help="Backend for Planner/Critic structured output (default: claude)",
 )
+@click.option(
+    "--verifier-model",
+    default=None,
+    help="Model for Verifier (default: follows planner)",
+)
+@click.option(
+    "--verifier-backend",
+    default=None,
+    type=click.Choice(["claude", "codex", "gemini"]),
+    help="Backend for Verifier (default: follows planner)",
+)
 @click.option("--api-key", default=None, help="API key (overrides env var and config)")
 @click.option("--json", "json_output", is_flag=True, help="Output result as JSON")
 @click.option("--detach", is_flag=True, help="Start mission and return immediately")
@@ -320,6 +360,8 @@ def run(
     no_planner: bool,
     planner_model: str,
     planner_backend: str,
+    verifier_model: str | None,
+    verifier_backend: str | None,
     api_key: str | None,
     json_output: bool,
     detach: bool,
@@ -354,6 +396,13 @@ def run(
     agent_auth = resolve_auth_method(backend, cfg, section="defaults")
     planner_auth = resolve_auth_method(planner_backend, cfg, section="planner")
 
+    # Resolve verifier: CLI flag > config [verifier] > planner
+    if verifier_backend is None:
+        verifier_backend = cfg.get("verifier", "backend", planner_backend)
+    if verifier_model is None:
+        verifier_model = cfg.get("verifier", "model", planner_model)
+    verifier_auth = resolve_auth_method(verifier_backend, cfg, section="verifier")
+
     # ── Resolve API key: CLI flag > env var > config ──
     resolved_key = resolve_api_key(backend, api_key, cfg)
     if resolved_key:
@@ -369,6 +418,18 @@ def run(
             env_var = _KEY_MAP.get(planner_backend, ("", ""))[0]
             if env_var and not os.environ.get(env_var):
                 os.environ[env_var] = planner_key
+
+    # Also resolve verifier backend API key if different from both
+    if (
+        verifier_backend != backend
+        and verifier_backend != planner_backend
+        and verifier_auth == "api_key"
+    ):
+        verifier_key = resolve_api_key(verifier_backend, config=cfg)
+        if verifier_key:
+            env_var = _KEY_MAP.get(verifier_backend, ("", ""))[0]
+            if env_var and not os.environ.get(env_var):
+                os.environ[env_var] = verifier_key
 
     # Validate mutually exclusive --goal / --goal-file
     if goal and goal_file:
@@ -457,6 +518,9 @@ def run(
         workspace_dir=Path(workdir) if workdir else None,
         planner_backend_name=planner_backend,
         agent_auth=agent_auth,
+        verifier_backend_name=verifier_backend,
+        verifier_model=verifier_model,
+        verifier_auth=verifier_auth,
     )
 
     from automission.daemon import spawn_executor
@@ -606,225 +670,6 @@ def _edit_plan_draft(draft):
                 return draft
 
 
-def _run_mission(
-    goal: str,
-    acceptance_path: Path | None,
-    verify_path: Path | None,
-    skill_sources: list[str],
-    agents: int,
-    max_iterations: int,
-    max_cost: float,
-    timeout: int,
-    backend_name: str,
-    model: str = "claude-sonnet-4-6",
-    docker_image: str = "ghcr.io/codance-ai/automission:latest",
-    init_files_dir: Path | None = None,
-    workspace_dir: Path | None = None,
-    acceptance_content: str | None = None,
-    verify_content: str | None = None,
-    mission_content: str | None = None,
-    planner_backend_name: str = "claude",
-    agent_auth: str = "api_key",
-) -> tuple[bool, str, str, Path]:
-    """Create workspace and run loop. Returns (passed, mission_id, outcome, workspace)."""
-    from automission.workspace import create_mission
-    from automission.verifier import Verifier
-    from automission.docker import ensure_docker
-    from automission.structured_output import create_structured_backend
-
-    # Set up signal handler for graceful Ctrl+C
-    cancel_event = threading.Event()
-    _setup_signal_handler(cancel_event)
-
-    # Pre-flight: verify Docker is available
-    try:
-        ensure_docker(docker_image)
-    except (RuntimeError, ValueError) as exc:
-        raise click.ClickException(str(exc))
-
-    # Create backend
-    agent_backend = _create_backend(
-        backend_name, docker_image=docker_image, auth_method=agent_auth, model=model
-    )
-
-    import uuid
-
-    mission_id = uuid.uuid4().hex[:12]
-
-    click.echo(f"Creating mission {mission_id}...")
-
-    ws = create_mission(
-        mission_id=mission_id,
-        goal=goal,
-        acceptance_path=acceptance_path,
-        acceptance_content=acceptance_content,
-        verify_path=verify_path,
-        verify_content=verify_content,
-        mission_content=mission_content,
-        backend=agent_backend,
-        workspace_dir=workspace_dir,
-        skill_sources=skill_sources,
-        init_files_dir=init_files_dir,
-        agents=agents,
-        max_iterations=max_iterations,
-        max_cost=max_cost,
-        timeout=timeout,
-        backend_name=backend_name,
-        docker_image=docker_image,
-        model=model,
-    )
-
-    click.echo(f"Workspace: {ws}")
-
-    # Create verifier with structured output backend for critic
-    so_backend = create_structured_backend(
-        planner_backend_name, docker_image=docker_image
-    )
-    verifier = Verifier(
-        backend=so_backend,
-        docker_image=docker_image,
-    )
-
-    if agents > 1:
-        from automission.orchestrator import run_multi_agent
-
-        outcome = run_multi_agent(
-            mission_id=mission_id,
-            mission_dir=ws,
-            n_agents=agents,
-            backend=agent_backend,
-            verifier=verifier,
-            max_iterations=max_iterations,
-            max_cost=max_cost,
-            timeout=timeout,
-            cancel_flag=cancel_event.is_set,
-        )
-    else:
-        outcome = _run_single_agent_frontier(
-            mission_id=mission_id,
-            ws=ws,
-            backend=agent_backend,
-            verifier=verifier,
-            max_iterations=max_iterations,
-            max_cost=max_cost,
-            timeout=timeout,
-            cancel_flag=cancel_event.is_set,
-        )
-
-    return outcome == MissionOutcome.COMPLETED, mission_id, outcome, ws
-
-
-def _run_single_agent_frontier(
-    mission_id: str,
-    ws: Path,
-    backend: "AgentBackend",
-    verifier: "Verifier",
-    max_iterations: int,
-    max_cost: float,
-    timeout: int,
-    cancel_flag: Callable[[], bool],
-) -> str:
-    """Single-agent frontier loop: work on frontier groups one at a time.
-
-    Computes the frontier, picks the first available group, runs run_loop
-    scoped to that group, then re-computes the frontier. Repeats until
-    all groups are done or a circuit breaker fires.
-    """
-    from automission.loop import run_loop
-
-    failed_groups: set[str] = set()  # Track groups that stalled out
-
-    with Ledger(ws / "mission.db") as ledger:
-        while True:
-            if cancel_flag():
-                ledger.update_mission_status(mission_id, MissionOutcome.CANCELLED)
-                return MissionOutcome.CANCELLED
-
-            # Check resource limits
-            mission = ledger.get_mission(mission_id)
-            if mission is None:
-                return MissionOutcome.FAILED
-            if mission["total_attempts"] >= max_iterations:
-                ledger.update_mission_status(mission_id, MissionOutcome.RESOURCE_LIMIT)
-                return MissionOutcome.RESOURCE_LIMIT
-            if mission["total_cost"] >= max_cost:
-                ledger.update_mission_status(mission_id, MissionOutcome.RESOURCE_LIMIT)
-                return MissionOutcome.RESOURCE_LIMIT
-
-            # Compute frontier (excludes completed and claimed)
-            frontier_dicts = ledger.get_frontier_groups(mission_id)
-            if not frontier_dicts:
-                # No frontier = all groups done or blocked
-                groups = ledger.get_acceptance_groups(mission_id)
-                all_done = bool(groups) and all(
-                    ledger.is_group_completed(g.id) for g in groups
-                )
-                if all_done:
-                    ledger.update_mission_status(mission_id, MissionOutcome.COMPLETED)
-                    return MissionOutcome.COMPLETED
-                # Blocked (shouldn't happen in valid DAG)
-                ledger.update_mission_status(mission_id, MissionOutcome.FAILED)
-                return MissionOutcome.FAILED
-
-            # Get full AcceptanceGroup objects for the frontier, skip failed
-            all_groups = ledger.get_acceptance_groups(mission_id)
-            frontier_ids = {g["id"] for g in frontier_dicts}
-            target_groups = [
-                g
-                for g in all_groups
-                if g.id in frontier_ids and g.id not in failed_groups
-            ]
-
-            if not target_groups:
-                # All frontier groups have failed — mission fails
-                ledger.update_mission_status(mission_id, MissionOutcome.FAILED)
-                return MissionOutcome.FAILED
-
-            # Budget remaining iterations across frontier groups
-            remaining_iters = max_iterations - mission["total_attempts"]
-            per_group_iters = max(1, remaining_iters // len(target_groups))
-
-            logger.info(
-                "Frontier: %s (budget %d iters each)",
-                [g.id for g in target_groups],
-                per_group_iters,
-            )
-
-            # Work on the first available frontier group
-            current_group = target_groups[0]
-            outcome = run_loop(
-                mission_id=mission_id,
-                workdir=ws,
-                backend=backend,
-                verifier=verifier,
-                max_iterations=mission["total_attempts"] + per_group_iters,
-                max_cost=max_cost,
-                timeout=timeout,
-                cancel_flag=cancel_flag,
-                target_groups=[current_group],
-            )
-
-            if outcome == MissionOutcome.COMPLETED:
-                # Check if ALL groups done (target group passed, but others may remain)
-                groups = ledger.get_acceptance_groups(mission_id)
-                all_done = bool(groups) and all(
-                    ledger.is_group_completed(g.id) for g in groups
-                )
-                if all_done:
-                    ledger.update_mission_status(mission_id, MissionOutcome.COMPLETED)
-                    return MissionOutcome.COMPLETED
-                # Target group done, new frontier may have opened — loop
-                continue
-
-            if outcome == MissionOutcome.CANCELLED:
-                return MissionOutcome.CANCELLED
-
-            if outcome == MissionOutcome.RESOURCE_LIMIT:
-                return MissionOutcome.RESOURCE_LIMIT
-
-            # Stall/failure on this group — skip it and try next
-            failed_groups.add(current_group.id)
-            logger.info("Group %s failed, skipping", current_group.id)
 
 
 def _collect_changed_files(ledger: Ledger, mission_id: str, ws: Path) -> list[dict]:
@@ -914,6 +759,9 @@ def _create_mission_workspace(
     mission_content: str | None = None,
     planner_backend_name: str = "claude",
     agent_auth: str = "api_key",
+    verifier_backend_name: str = "claude",
+    verifier_model: str = "claude-sonnet-4-6",
+    verifier_auth: str = "api_key",
 ) -> tuple[str, Path]:
     """Create workspace and return (mission_id, workspace_path). Does NOT start execution."""
     from automission.workspace import create_mission
@@ -952,6 +800,10 @@ def _create_mission_workspace(
         backend_name=backend_name,
         docker_image=docker_image,
         model=model,
+        agent_auth=agent_auth,
+        verifier_backend_name=verifier_backend_name,
+        verifier_model=verifier_model,
+        verifier_auth=verifier_auth,
     )
     return mission_id, ws
 

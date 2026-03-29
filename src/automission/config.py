@@ -54,10 +54,14 @@ def _build_default_config(
     agent_model: str = "",
     planner_backend: str = "claude",
     planner_model: str = "",
+    verifier_backend: str = "",
+    verifier_model: str = "",
 ) -> str:
     """Build the default config TOML with the correct models for chosen backends."""
     am = agent_model or default_model(agent_backend)
     pm = planner_model or default_model(planner_backend)
+    vb = verifier_backend or planner_backend
+    vm = verifier_model or pm
     return f"""\
 # automission configuration
 # Docs: https://github.com/codance-ai/automission
@@ -83,7 +87,9 @@ model = "{pm}"
 auth = "api_key"
 
 [verifier]
-model = "{am}"
+backend = "{vb}"
+model = "{vm}"
+auth = "api_key"
 
 [docker]
 image = "ghcr.io/codance-ai/automission:latest"
@@ -260,6 +266,9 @@ def generate_default_config(
     planner_backend: str = "claude",
     planner_auth: str = "api_key",
     planner_model: str = "",
+    verifier_backend: str = "",
+    verifier_auth: str = "api_key",
+    verifier_model: str = "",
 ) -> Path:
     """Generate config.toml with secure permissions.
 
@@ -273,10 +282,13 @@ def generate_default_config(
         agent_model=agent_model,
         planner_backend=planner_backend,
         planner_model=planner_model,
+        verifier_backend=verifier_backend,
+        verifier_model=verifier_model,
     )
     data = tomllib.loads(cfg_toml)
     data["defaults"]["auth"] = agent_auth
     data["planner"]["auth"] = planner_auth
+    data["verifier"]["auth"] = verifier_auth
 
     lines = [
         "# automission configuration",
