@@ -1251,32 +1251,31 @@ def logs(mission_id, last, verbose_logs, follow, json_output):
 
             return len(attempts)
 
-    initial_count = _display_attempts()
-
     if follow:
-        seen = initial_count
+        # Follow mode: tail events.jsonl for all events (planner, groups, attempts)
+        from automission.events import EventTailer
+
+        events_file = ws / "events.jsonl"
+        if not events_file.exists():
+            click.echo("Waiting for events...")
+            for _ in range(50):
+                if events_file.exists():
+                    break
+                time.sleep(0.2)
+
+        if not events_file.exists():
+            click.echo("No events file found.")
+            return
+
+        tailer = EventTailer(events_file)
+        stop = threading.Event()
         try:
-            while True:
-                with Ledger(ws / "mission.db") as ledger:
-                    attempts = ledger.get_attempts(mission_id)
-                    groups = ledger.get_acceptance_groups(mission_id)
-                    if len(attempts) > seen:
-                        new_attempts = attempts[seen:]
-                        for i, a in enumerate(new_attempts):
-                            prev_idx = seen + i - 1
-                            prev = attempts[prev_idx] if prev_idx >= 0 else None
-                            _render_attempt_log(
-                                a, groups, prev_attempt=prev, verbose=verbose_logs
-                            )
-                        seen = len(attempts)
-                    # Check if mission is still running
-                    m = ledger.get_mission(mission_id)
-                    if m and m["status"] != "running":
-                        click.echo(f"Mission {mission_id} is {m['status']}.")
-                        break
-                time.sleep(2)
+            for event in tailer.follow(stop_event=stop, poll_interval=0.5):
+                _render_event(event)
         except KeyboardInterrupt:
             pass
+    else:
+        _display_attempts()
 
 
 # ── attach command ──
