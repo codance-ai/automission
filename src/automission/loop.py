@@ -150,7 +150,7 @@ def run_loop(
 
             # ── Stall detection (pre-iteration) ──
             stall_hint = False
-            stall_count = _count_stall(ledger, mission_id, stall_threshold)
+            stall_count = _count_stall(ledger, mission_id)
 
             if stall_count >= stall_threshold * 2:
                 # Too many stalls — give up
@@ -550,7 +550,7 @@ def _build_retry_prompt(
     return "\n".join(lines)
 
 
-def _count_stall(ledger: Ledger, mission_id: str, threshold: int) -> int:
+def _count_stall(ledger: Ledger, mission_id: str) -> int:
     """Count consecutive failed attempts from the end.
 
     Counts how many consecutive attempts have gate_passed=False.

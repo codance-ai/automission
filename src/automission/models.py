@@ -138,6 +138,12 @@ class VerificationResult:
 
     @property
     def mission_passed(self) -> bool:
+        """True when gate passes AND all groups are marked complete by Critic.
+
+        Returns False when group_statuses is empty (e.g. Critic LLM failure),
+        even if the gate passed. This is intentional: a transient Critic failure
+        causes a retry rather than incorrectly completing the mission.
+        """
         return (
             self.harness.passed
             and bool(self.critic.group_statuses)
