@@ -7,7 +7,7 @@ import logging
 import subprocess
 import uuid
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from automission.backend.protocol import AgentBackend
 from automission.db import Ledger
@@ -262,6 +262,7 @@ def _run_one_iteration(
     dirty_state = _get_dirty_state(workdir)
 
     # ── Build prompt ──
+    contract = None
     if last_verification is None:
         # First attempt
         prompt = _build_first_attempt_prompt(
@@ -289,14 +290,14 @@ def _run_one_iteration(
     )
     logger.info("Running attempt %s (#%d)", attempt_id, attempt_number)
     if event_writer:
-        event_writer.emit(
-            "attempt_start",
-            {
-                "agent_id": agent_id,
-                "attempt": attempt_number,
-                "attempt_id": attempt_id,
-            },
-        )
+        start_data: dict[str, Any] = {
+            "agent_id": agent_id,
+            "attempt": attempt_number,
+            "attempt_id": attempt_id,
+        }
+        if contract is not None:
+            start_data["scope"] = contract.scope
+        event_writer.emit("attempt_start", start_data)
     attempt_result = backend.run_attempt(spec)
 
     # ── Auto-commit ──
@@ -351,12 +352,32 @@ def _run_one_iteration(
                 "changed_files": attempt_result.changed_files,
             },
         )
+        # Build criterion → group_name mapping for display
+        criterion_group_map: dict[str, str] = {}
+        for g in groups:
+            for c in g.criteria:
+                criterion_group_map[c.text] = g.name
+
         event_writer.emit(
             "verification",
             {
                 "passed": verification.contract_passed,
                 "score": verification.score,
-                "failed_criteria": [c.criterion for c in verification.failed_criteria],
+                "failed_criteria": [
+                    {
+                        "criterion": c.criterion,
+                        "group": criterion_group_map.get(c.criterion, ""),
+                    }
+                    for c in verification.failed_criteria
+                ],
+                "passed_criteria": [
+                    {
+                        "criterion": c.criterion,
+                        "group": criterion_group_map.get(c.criterion, ""),
+                    }
+                    for c in verification.passed_criteria
+                ],
+                "suggestion": verification.suggestion,
             },
         )
 

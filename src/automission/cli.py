@@ -879,6 +879,114 @@ def _fmt_tokens(total: int) -> str:
     return f"{total} tokens"
 
 
+def _fmt_changed_files(files: list[str], max_shown: int = 5) -> str:
+    """Format changed files list: 'a.py, b.py (+2 files)'."""
+    if not files:
+        return ""
+    basenames = [Path(f).name for f in files]
+    if len(basenames) <= max_shown:
+        return f"{', '.join(basenames)} ({len(files)} file{'s' if len(files) != 1 else ''})"
+    shown = ", ".join(basenames[:max_shown])
+    return f"{shown} +{len(files) - max_shown} more ({len(files)} files)"
+
+
+def _render_criteria(event_or_vr: dict, *, indent: str = "    ", verbose: bool = False) -> None:
+    """Render per-criterion pass/fail lines.
+
+    Works with both live event dicts and VerifierResult-like dicts.
+    If verbose, shows detail text for each criterion.
+    """
+    failed = event_or_vr.get("failed_criteria", [])
+    passed = event_or_vr.get("passed_criteria", [])
+
+    # Normalize: event format is [{criterion, group}], VR format may be [{criterion, detail}]
+    for c in failed:
+        name = c.get("criterion", c) if isinstance(c, dict) else c
+        group = c.get("group", "") if isinstance(c, dict) else ""
+        detail = c.get("detail", "") if isinstance(c, dict) else ""
+        group_tag = f"[{group}] " if group else ""
+        click.echo(f"{indent}{click.style('✗', fg='red')} {group_tag}{name}")
+        if verbose and detail:
+            click.echo(f"{indent}  → {detail}")
+    for c in passed:
+        name = c.get("criterion", c) if isinstance(c, dict) else c
+        group = c.get("group", "") if isinstance(c, dict) else ""
+        group_tag = f"[{group}] " if group else ""
+        click.echo(f"{indent}{click.style('✓', fg='green')} {group_tag}{name}")
+
+
+def _render_attempt_log(
+    attempt: dict,
+    groups: list,
+    *,
+    prev_attempt: dict | None = None,
+    verbose: bool = False,
+) -> None:
+    """Render a single attempt with full detail for logs output."""
+    gate = "PASS" if attempt["verification_passed"] else "FAIL"
+    color = "green" if attempt["verification_passed"] else "red"
+    tokens = (attempt["token_input"] or 0) + (attempt["token_output"] or 0)
+
+    # Header line — include retry focus for attempt > 1
+    header = (
+        f"  #{attempt['attempt_number']}  {attempt['agent_id']:10s}  "
+        f"{click.style(gate, fg=color):4s}  "
+        f"{_fmt_tokens(tokens)}  {attempt['duration_s']:.0f}s"
+    )
+    if prev_attempt and prev_attempt.get("verification_result"):
+        try:
+            prev_vr = VerifierResult.from_json(prev_attempt["verification_result"])
+            failed_names = [c.criterion for c in prev_vr.failed_criteria[:3]]
+            if failed_names:
+                header += f" — focus: {', '.join(failed_names)}"
+        except (json.JSONDecodeError, KeyError):
+            pass
+    click.echo(header)
+
+    # Changed files
+    try:
+        changed = json.loads(attempt.get("changed_files", "[]"))
+    except (json.JSONDecodeError, TypeError):
+        changed = []
+    if changed:
+        click.echo(f"    changed: {_fmt_changed_files(changed)}")
+
+    # Criteria breakdown + suggestion
+    if attempt.get("verification_result"):
+        try:
+            vr = VerifierResult.from_json(attempt["verification_result"])
+            # Build criterion text → group_name mapping
+            criterion_to_group: dict[str, str] = {}
+            for g in groups:
+                for c in g.criteria:
+                    criterion_to_group[c.text] = g.name
+
+            criteria_data = {
+                "failed_criteria": [
+                    {
+                        "criterion": c.criterion,
+                        "group": criterion_to_group.get(c.criterion, ""),
+                        "detail": c.detail,
+                    }
+                    for c in vr.failed_criteria
+                ],
+                "passed_criteria": [
+                    {
+                        "criterion": c.criterion,
+                        "group": criterion_to_group.get(c.criterion, ""),
+                    }
+                    for c in vr.passed_criteria
+                ],
+            }
+            _render_criteria(criteria_data, verbose=verbose)
+            if verbose and vr.reason:
+                click.echo(f"    reason: {vr.reason}")
+            if vr.suggestion:
+                click.echo(f"    suggestion: {vr.suggestion}")
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+
 def _render_event(event: dict) -> None:
     """Render a single event to terminal."""
     etype = event.get("type", "unknown")
@@ -889,17 +997,28 @@ def _render_event(event: dict) -> None:
     elif etype == "attempt_start":
         agent = event.get("agent_id", "?")
         attempt = event.get("attempt", "?")
-        click.echo(f"  [{agent}] attempt #{attempt} ...")
+        scope = event.get("scope")
+        if scope:
+            click.echo(f"  [{agent}] attempt #{attempt} — focus: {scope}")
+        else:
+            click.echo(f"  [{agent}] attempt #{attempt} ...")
     elif etype == "attempt_end":
         status = event.get("status", "?")
         tokens = event.get("token_input", 0) + event.get("token_output", 0)
         click.echo(f"  attempt done ({status}, {_fmt_tokens(tokens)})")
+        changed = event.get("changed_files", [])
+        if changed:
+            click.echo(f"    changed: {_fmt_changed_files(changed)}")
     elif etype == "verification":
         passed = event.get("passed", False)
         score = event.get("score", "?")
         color = "green" if passed else "red"
         label = "PASS" if passed else "FAIL"
         click.echo(f"  verify: {click.style(label, fg=color)} (score={score})")
+        _render_criteria(event)
+        suggestion = event.get("suggestion")
+        if suggestion:
+            click.echo(f"    suggestion: {suggestion}")
     elif etype == "group_start":
         name = event.get("group_name", event.get("group_id", "?"))
         click.echo(f"\nWorking on: {name}")
@@ -995,6 +1114,27 @@ def _print_mission(mission: dict, ws: Path, ledger: Ledger) -> None:
 
     groups = ledger.get_acceptance_groups(mission_id)
     if groups:
+        # Build per-group criteria counts from latest verification
+        group_passed_counts: dict[str, int] = {}
+        last_attempt = ledger.get_last_attempt(mission_id)
+        if last_attempt and last_attempt.get("verification_result"):
+            try:
+                vr = VerifierResult.from_json(last_attempt["verification_result"])
+                # Map criterion text → group name
+                criterion_to_group: dict[str, str] = {}
+                for g in groups:
+                    for c in g.criteria:
+                        criterion_to_group[c.text] = g.name
+                # Count passed per group
+                for c in vr.passed_criteria:
+                    gname = criterion_to_group.get(c.criterion, "")
+                    if gname:
+                        group_passed_counts[gname] = group_passed_counts.get(gname, 0) + 1
+            except (json.JSONDecodeError, KeyError):
+                logger.warning(
+                    "Could not parse verification_result for criteria counts"
+                )
+
         click.echo("\nAcceptance Checklist:")
         for g in groups:
             row = ledger.conn.execute(
@@ -1006,7 +1146,12 @@ def _print_mission(mission: dict, ws: Path, ledger: Ledger) -> None:
                 if completed
                 else click.style("○", fg="yellow")
             )
-            click.echo(f"  {marker} {g.name}")
+            total = len(g.criteria)
+            passed = group_passed_counts.get(g.name)
+            if passed is not None:
+                click.echo(f"  {marker} {g.name} ({passed}/{total})")
+            else:
+                click.echo(f"  {marker} {g.name} ({total} criteria)")
 
     attempts = ledger.get_attempts(mission_id)
     if attempts:
@@ -1068,6 +1213,8 @@ def logs(mission_id, last, verbose_logs, follow, json_output):
             if last:
                 attempts = attempts[-last:]
 
+            groups = ledger.get_acceptance_groups(mission_id)
+
             if json_output:
                 output = []
                 for a in attempts:
@@ -1080,6 +1227,12 @@ def logs(mission_id, last, verbose_logs, follow, json_output):
                         "token_output": a["token_output"],
                         "duration_s": a["duration_s"],
                     }
+                    try:
+                        entry["changed_files"] = json.loads(
+                            a.get("changed_files", "[]")
+                        )
+                    except (json.JSONDecodeError, TypeError):
+                        entry["changed_files"] = []
                     if verbose_logs and a.get("verification_result"):
                         try:
                             entry["verification_result"] = json.loads(
@@ -1090,25 +1243,11 @@ def logs(mission_id, last, verbose_logs, follow, json_output):
                     output.append(entry)
                 click.echo(json.dumps(output, indent=2))
             else:
-                for a in attempts:
-                    gate = "PASS" if a["verification_passed"] else "FAIL"
-                    color = "green" if a["verification_passed"] else "red"
-                    tokens = (a["token_input"] or 0) + (a["token_output"] or 0)
-                    click.echo(
-                        f"  #{a['attempt_number']}  {a['agent_id']:10s}  "
-                        f"{click.style(gate, fg=color):4s}  "
-                        f"{_fmt_tokens(tokens)}  {a['duration_s']:.0f}s"
+                for i, a in enumerate(attempts):
+                    prev = attempts[i - 1] if i > 0 else None
+                    _render_attempt_log(
+                        a, groups, prev_attempt=prev, verbose=verbose_logs
                     )
-                    if verbose_logs and a.get("verification_result"):
-                        try:
-                            vr = VerifierResult.from_json(a["verification_result"])
-                            if vr.failed_criteria:
-                                for c in vr.failed_criteria:
-                                    click.echo(f"    FAIL: {c.criterion}: {c.detail}")
-                            if vr.suggestion:
-                                click.echo(f"    Suggestion: {vr.suggestion}")
-                        except (json.JSONDecodeError, KeyError):
-                            pass
 
             return len(attempts)
 
@@ -1120,16 +1259,14 @@ def logs(mission_id, last, verbose_logs, follow, json_output):
             while True:
                 with Ledger(ws / "mission.db") as ledger:
                     attempts = ledger.get_attempts(mission_id)
+                    groups = ledger.get_acceptance_groups(mission_id)
                     if len(attempts) > seen:
                         new_attempts = attempts[seen:]
-                        for a in new_attempts:
-                            gate = "PASS" if a["verification_passed"] else "FAIL"
-                            color = "green" if a["verification_passed"] else "red"
-                            tokens = (a["token_input"] or 0) + (a["token_output"] or 0)
-                            click.echo(
-                                f"  #{a['attempt_number']}  {a['agent_id']:10s}  "
-                                f"{click.style(gate, fg=color):4s}  "
-                                f"{_fmt_tokens(tokens)}  {a['duration_s']:.0f}s"
+                        for i, a in enumerate(new_attempts):
+                            prev_idx = seen + i - 1
+                            prev = attempts[prev_idx] if prev_idx >= 0 else None
+                            _render_attempt_log(
+                                a, groups, prev_attempt=prev, verbose=verbose_logs
                             )
                         seen = len(attempts)
                     # Check if mission is still running
