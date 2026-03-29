@@ -37,18 +37,21 @@ def _unwrap_docker_in_verifier(monkeypatch):
         ):
             return _real_run(cmd, **kwargs)
         workdir = None
+        container_workdir = None
         i = 2
         inner_cmd = []
+        volumes = []
         while i < len(cmd):
             arg = cmd[i]
             if arg == "--rm":
                 i += 1
             elif arg == "-v" and i + 1 < len(cmd):
-                mount = cmd[i + 1]
-                if ":/workspace" in mount:
-                    workdir = mount.split(":/workspace")[0]
+                volumes.append(cmd[i + 1])
                 i += 2
-            elif arg in ("-w", "-e") and i + 1 < len(cmd):
+            elif arg == "-w" and i + 1 < len(cmd):
+                container_workdir = cmd[i + 1]
+                i += 2
+            elif arg == "-e" and i + 1 < len(cmd):
                 i += 2
             elif arg.startswith("-"):
                 i += 1
@@ -58,6 +61,23 @@ def _unwrap_docker_in_verifier(monkeypatch):
                 break
         else:
             return _real_run(cmd, **kwargs)
+        # Find host path from volume mount matching container_workdir
+        if container_workdir:
+            for vol in volumes:
+                # Format: host_path:container_path[:ro]
+                if f":{container_workdir}" in vol:
+                    workdir = vol.split(f":{container_workdir}")[0]
+                    break
+        # Strip Docker-only setup commands (e.g., git config --global)
+        # from "bash -c 'setup && actual_cmd'" to avoid polluting host env.
+        if (
+            len(inner_cmd) == 3
+            and inner_cmd[0] == "bash"
+            and inner_cmd[1] == "-c"
+            and "&&" in inner_cmd[2]
+        ):
+            actual_cmd = inner_cmd[2].split("&&", 1)[1].strip()
+            inner_cmd = ["bash", "-c", actual_cmd]
         return _real_run(
             inner_cmd,
             cwd=workdir,
