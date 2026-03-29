@@ -964,7 +964,7 @@ class TestExportCommand:
 
     def test_export_copies_user_files_only(self, runner, tmp_path):
         """Export should copy user files and exclude internal files."""
-        ws = self._create_fake_workspace(tmp_path)
+        self._create_fake_workspace(tmp_path)
         output_dir = tmp_path / "exported"
 
         with patch("automission.cli.DEFAULT_BASE_DIR", tmp_path / "missions"):
@@ -992,7 +992,7 @@ class TestExportCommand:
 
     def test_export_fails_if_target_exists_without_force(self, runner, tmp_path):
         """Export should refuse to overwrite existing directory."""
-        ws = self._create_fake_workspace(tmp_path)
+        self._create_fake_workspace(tmp_path)
         output_dir = tmp_path / "exported"
         output_dir.mkdir()
 
@@ -1006,7 +1006,7 @@ class TestExportCommand:
 
     def test_export_with_force_overwrites(self, runner, tmp_path):
         """Export --force should overwrite existing directory."""
-        ws = self._create_fake_workspace(tmp_path)
+        self._create_fake_workspace(tmp_path)
         output_dir = tmp_path / "exported"
         output_dir.mkdir()
         (output_dir / "old-file.txt").write_text("stale")
