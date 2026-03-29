@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 import click
 import questionary
+from questionary import Style
 
 from automission.config import (
     CONFIG_PATH,
@@ -28,6 +29,17 @@ from automission.models import MissionOutcome, VerifierResult
 from automission.workspace import DEFAULT_BASE_DIR
 
 logger = logging.getLogger(__name__)
+
+_SELECT_STYLE = Style(
+    [
+        ("qmark", "fg:cyan"),
+        ("question", "bold"),
+        ("pointer", "fg:cyan bold"),
+        ("highlighted", "fg:cyan bold"),
+        ("selected", "fg:cyan"),
+        ("text", ""),
+    ]
+)
 
 # ── Signal handling ──
 
@@ -97,6 +109,8 @@ def init(force: bool) -> None:
         choices=backends,
         default="claude",
         qmark="›",
+        style=_SELECT_STYLE,
+        pointer="›",
     ).ask()
     if agent_backend is None:
         raise SystemExit(0)
@@ -111,6 +125,8 @@ def init(force: bool) -> None:
         choices=backends,
         default="claude",
         qmark="›",
+        style=_SELECT_STYLE,
+        pointer="›",
     ).ask()
     if planner_backend is None:
         raise SystemExit(0)
@@ -125,6 +141,8 @@ def init(force: bool) -> None:
         choices=["yes", "no"],
         default="yes",
         qmark="›",
+        style=_SELECT_STYLE,
+        pointer="›",
     ).ask()
     if use_planner is None:
         raise SystemExit(0)
@@ -230,11 +248,15 @@ def _prompt_model(backend: str) -> str:
         choices=choices,
         default=models[0],
         qmark="›",
+        style=_SELECT_STYLE,
+        pointer="›",
     ).ask()
     if model is None:
         raise SystemExit(0)
     if model == "Other (type manually)":
-        model = questionary.text("Enter model name:", qmark="›").ask()
+        model = questionary.text(
+            "Enter model name:", qmark="›", style=_SELECT_STYLE
+        ).ask()
         if not model:
             raise SystemExit(0)
     return model
@@ -253,6 +275,8 @@ def _prompt_auth(backend: str) -> str:
         choices=["api_key", "oauth"],
         default="api_key",
         qmark="›",
+        style=_SELECT_STYLE,
+        pointer="›",
     ).ask()
     if auth is None:
         raise SystemExit(0)
