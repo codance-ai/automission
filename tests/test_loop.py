@@ -124,9 +124,9 @@ class TestRunSingleIteration:
         assert "verify.sh" in prompt
 
     def test_passing_mission_marked_completed(self, mission_workspace):
-        """When verify.sh passes and basic critic says all groups done, mission completed."""
+        """When verify.sh passes and critic says all groups done, mission completed."""
         ws, backend = mission_workspace
-        # Basic critic (no LLM) marks all groups as passed when gate passes
+        # MockCriticBackend marks all groups as passed when gate passes
         verifier = Verifier(backend=MockCriticBackend())
 
         result = run_single_iteration(
