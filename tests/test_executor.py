@@ -127,6 +127,25 @@ class TestRunExecutor:
 
     def test_writes_events(self, mission_workspace):
         ws = mission_workspace
+        # Record some attempts so total_attempts > 0
+        with Ledger(ws / "mission.db") as ledger:
+            ledger.record_attempt(
+                attempt_id="a-1",
+                mission_id="m-test",
+                agent_id="agent-1",
+                attempt_number=1,
+                status="completed",
+                exit_code=0,
+                duration_s=1.0,
+                cost_usd=0.01,
+                token_input=100,
+                token_output=50,
+                changed_files=[],
+                verification_passed=True,
+                verification_result="{}",
+                commit_hash="abc123",
+            )
+
         with patch("automission.executor._execute_mission") as mock_exec:
             mock_exec.return_value = "completed"
             run_executor(ws, "m-test")
@@ -137,6 +156,9 @@ class TestRunExecutor:
         types = [e["type"] for e in events]
         assert "mission_started" in types
         assert "mission_completed" in types
+        # Verify total_attempts is populated from DB
+        completed_event = [e for e in events if e["type"] == "mission_completed"][0]
+        assert completed_event["total_attempts"] == 1
 
     def test_cleans_pid_on_exit(self, mission_workspace):
         ws = mission_workspace

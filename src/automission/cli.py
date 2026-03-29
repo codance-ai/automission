@@ -898,10 +898,9 @@ def _render_event(event: dict) -> None:
         gid = event.get("group_id", "?")
         click.secho(f"  Group {gid} completed!", fg="green")
     elif etype == "mission_completed":
-        cost = event.get("total_cost", 0)
         attempts = event.get("total_attempts", 0)
         click.secho(
-            f"\nMission completed! (${cost:.2f}, {attempts} attempts)", fg="green"
+            f"\nMission completed! ({attempts} attempts)", fg="green"
         )
     elif etype == "mission_failed":
         outcome = event.get("outcome", "failed")

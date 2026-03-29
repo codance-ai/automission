@@ -97,14 +97,14 @@ class TestEventLifecycle:
             w.emit("attempt_end", {"status": "completed", "cost_usd": 0.15})
             w.emit("verification", {"passed": True, "score": 0.9})
             w.emit("group_completed", {"group_id": "g1"})
-            w.emit("mission_completed", {"total_cost": 0.5, "total_attempts": 3})
+            w.emit("mission_completed", {"total_attempts": 3})
 
         events = list(EventTailer(events_file).read_existing())
         assert len(events) == 6
         assert events[0]["type"] == "mission_started"
         assert events[0]["mission_id"] == "m-1"
         assert events[5]["type"] == "mission_completed"
-        assert events[5]["total_cost"] == 0.5
+        assert events[5]["total_attempts"] == 3
         # All events should have timestamps
         for e in events:
             assert "ts" in e
