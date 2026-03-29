@@ -158,7 +158,6 @@ class VerificationResult:
         """Serialize to JSON for ledger storage."""
         return json.dumps(
             {
-                "version": 2,
                 "harness": {
                     "passed": self.harness.passed,
                     "exit_code": self.harness.exit_code,
@@ -178,20 +177,8 @@ class VerificationResult:
 
     @classmethod
     def from_json(cls, raw: str) -> VerificationResult:
-        """Deserialize from JSON. Handles legacy VerifierResult format gracefully."""
+        """Deserialize from JSON."""
         d = json.loads(raw)
-        if "version" not in d:
-            # Legacy format — graceful degrade
-            return cls(
-                harness=HarnessResult(
-                    passed=d.get("contract_passed", False),
-                    exit_code=-1,
-                ),
-                critic=CriticResult(
-                    summary="legacy format",
-                    group_statuses=d.get("group_statuses", {}),
-                ),
-            )
         h = d["harness"]
         c = d["critic"]
         return cls(
