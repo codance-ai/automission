@@ -12,6 +12,7 @@ requires-python = ">=3.12"
 dependencies = [
     "click>=8.1",
     "jsonschema>=4.0",
+    "questionary>=2.0",
 ]
 authors = [{name = "Codance AI", email = "codance.ai@gmail.com"}]
 keywords = ["agents", "autonomous", "multi-agent", "orchestration", "docker", "llm", "claude", "codex", "gemini"]
