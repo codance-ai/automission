@@ -1104,6 +1104,60 @@ class TestFmtChangedFiles:
         assert "(8 files)" in result
 
 
+class TestIsMetadataFile:
+    """Tests for _is_metadata_file helper."""
+
+    def test_metadata_top_level_files(self):
+        from automission.cli import _is_metadata_file
+
+        for f in [
+            "CLAUDE.md",
+            "AGENTS.md",
+            "GEMINI.md",
+            "AUTOMISSION.md",
+            "MISSION.md",
+            "ACCEPTANCE.md",
+            "verify.sh",
+            "events.jsonl",
+            "mission.pid",
+            "mission.db",
+        ]:
+            assert _is_metadata_file(f) is True, f
+
+    def test_metadata_nested_paths(self):
+        from automission.cli import _is_metadata_file
+
+        assert _is_metadata_file("worktrees/agent-1/file.py") is True
+        assert _is_metadata_file("skills/my_skill.md") is True
+        assert _is_metadata_file(".git/objects/abc") is True
+
+    def test_user_deliverables(self):
+        from automission.cli import _is_metadata_file
+
+        assert _is_metadata_file("src/main.py") is False
+        assert _is_metadata_file("tests/test_foo.py") is False
+        assert _is_metadata_file(".github/workflows/ci.yml") is False
+        assert _is_metadata_file("calculator.py") is False
+
+
+class TestFmtChangedFilesFiltering:
+    """Tests for metadata filtering in _fmt_changed_files."""
+
+    def test_metadata_files_filtered(self):
+        from automission.cli import _fmt_changed_files
+
+        result = _fmt_changed_files(["calculator.py", "CLAUDE.md", "AUTOMISSION.md"])
+        assert "calculator.py" in result
+        assert "CLAUDE.md" not in result
+        assert "AUTOMISSION.md" not in result
+
+    def test_all_metadata_returns_empty(self):
+        from automission.cli import _fmt_changed_files
+
+        result = _fmt_changed_files(["CLAUDE.md", "AUTOMISSION.md", "verify.sh"])
+        assert result == ""
+
+
 class TestRenderCriteria:
     """Tests for _render_criteria helper."""
 

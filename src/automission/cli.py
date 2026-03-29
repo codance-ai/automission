@@ -743,7 +743,7 @@ def _collect_changed_files(ledger: Ledger, mission_id: str, ws: Path) -> list[di
 
     summary = []
     for f in sorted(all_files):
-        if not f:
+        if not f or _is_metadata_file(f):
             continue
         status = "modified" if f in baseline_files else "new"
         summary.append({"path": f, "status": status})
@@ -883,6 +883,7 @@ def _fmt_tokens(total: int) -> str:
 
 def _fmt_changed_files(files: list[str], max_shown: int = 5) -> str:
     """Format changed files list: 'a.py, b.py (+2 files)'."""
+    files = [f for f in files if not _is_metadata_file(f)]
     if not files:
         return ""
     basenames = [Path(f).name for f in files]
@@ -1204,9 +1205,10 @@ def logs(mission_id, last, verbose_logs, follow, json_output):
                         "duration_s": a["duration_s"],
                     }
                     try:
-                        entry["changed_files"] = json.loads(
-                            a.get("changed_files", "[]")
-                        )
+                        raw_files = json.loads(a.get("changed_files", "[]"))
+                        entry["changed_files"] = [
+                            f for f in raw_files if not _is_metadata_file(f)
+                        ]
                     except (json.JSONDecodeError, TypeError):
                         entry["changed_files"] = []
                     if verbose_logs and a.get("verification_result"):
@@ -1433,7 +1435,19 @@ _EXPORT_EXCLUDE = {
     "AUTOMISSION.md",
     "verify.sh",
     "skills",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "GEMINI.md",
+    "worktrees",
+    "events.jsonl",
+    "mission.pid",
 }
+
+
+def _is_metadata_file(path: str) -> bool:
+    """Check if a file path is automission internal metadata."""
+    top_level = path.split("/")[0]
+    return top_level in _EXPORT_EXCLUDE
 
 
 @cli.command()
