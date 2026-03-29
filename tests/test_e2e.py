@@ -8,8 +8,9 @@ import pytest
 from automission.backend.mock import MockBackend
 from automission.db import Ledger
 from automission.loop import run_loop, run_single_iteration
+from automission.critic import Critic
+from automission.harness import Harness
 from automission.orchestrator import run_multi_agent
-from automission.verifier import Verifier
 from conftest import MockCriticBackend
 from automission.workspace import create_mission
 
@@ -69,17 +70,18 @@ class TestE2EPassingMission:
         assert (ws / "src" / "tests" / "test_calc.py").exists()
 
         # 4. Run single iteration
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         result = run_single_iteration(
             mission_id="e2e-001",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
         )
 
         # 5. Assertions
-        assert result.gate_source == "script"
-        assert result.contract_passed is True
+        assert result.gate_passed is True
 
         # 6. Ledger state
         ledger = Ledger(ws / "mission.db")
@@ -113,12 +115,14 @@ class TestE2EPassingMission:
             init_files_dir=fixture_dir / "workspace",
         )
 
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         run_single_iteration(
             mission_id="e2e-002",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
         )
 
         assert len(backend.attempts) == 1
@@ -148,16 +152,17 @@ class TestE2EFailingMission:
             init_files_dir=fixture_dir / "workspace",
         )
 
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         result = run_single_iteration(
             mission_id="e2e-fail",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
         )
 
-        assert result.contract_passed is False
-        assert result.gate_source == "script"
+        assert result.gate_passed is False
 
         ledger = Ledger(ws / "mission.db")
         mission = ledger.get_mission("e2e-fail")
@@ -186,38 +191,35 @@ class TestE2EWithMockCritic:
         )
 
         critic_output = {
-            "passed_criteria": [
-                {"criterion": "add works", "passed": True, "detail": "ok"},
-                {"criterion": "subtract works", "passed": True, "detail": "ok"},
-                {"criterion": "multiply works", "passed": True, "detail": "ok"},
-                {"criterion": "divide works", "passed": True, "detail": "ok"},
-                {"criterion": "edge cases", "passed": True, "detail": "ok"},
+            "summary": "All 6 tests pass. Calculator implementation is complete.",
+            "root_cause": "",
+            "next_actions": [],
+            "blockers": [],
+            "group_statuses": [
+                {"group_id": "basic_operations", "completed": True},
+                {"group_id": "edge_cases", "completed": True},
             ],
-            "failed_criteria": [],
-            "group_statuses": {"basic_operations": True, "edge_cases": True},
-            "suggestion": "",
-            "reason": "All 6 tests pass. Calculator implementation is complete.",
-            "score": 1.0,
         }
 
         from unittest.mock import Mock
 
         critic_backend = Mock()
         critic_backend.query = Mock(return_value=critic_output)
-        verifier = Verifier(backend=critic_backend, verifier_model="claude-sonnet-4-6")
+        harness = Harness()
+        critic = Critic(backend=critic_backend)
         result = run_single_iteration(
             mission_id="e2e-critic",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
         )
 
-        assert result.contract_passed is True
+        assert result.gate_passed is True
         assert result.mission_passed is True
-        assert result.score == 1.0
-        assert len(result.passed_criteria) == 5
         assert (
-            result.reason == "All 6 tests pass. Calculator implementation is complete."
+            result.critic.summary
+            == "All 6 tests pass. Calculator implementation is complete."
         )
         assert result.group_statuses == {"basic_operations": True, "edge_cases": True}
 
@@ -240,13 +242,15 @@ class TestE2EMultiIteration:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         outcome = run_loop(
             mission_id="e2e-loop",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=5,
             max_cost=10.0,
             timeout=3600,
@@ -282,13 +286,15 @@ class TestE2EMultiIteration:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         run_loop(
             mission_id="e2e-feedback",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=5,
             max_cost=10.0,
             timeout=3600,
@@ -312,13 +318,15 @@ class TestE2EMultiIteration:
             workspace_dir=tmp_path / "ws",
             init_files_dir=fixture_dir / "workspace",
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         outcome = run_loop(
             mission_id="e2e-breaker",
             workdir=ws,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=2,
             max_cost=100.0,
             timeout=3600,
@@ -355,14 +363,16 @@ class TestE2EMultiAgent:
             ["git", "commit", "-m", "fix verify.sh"], cwd=ws, capture_output=True
         )
 
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         outcome = run_multi_agent(
             mission_id="e2e-multi",
             mission_dir=ws,
             n_agents=2,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=10,
             max_cost=50.0,
             timeout=3600,

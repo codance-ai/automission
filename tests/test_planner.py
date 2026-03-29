@@ -7,20 +7,19 @@ import json
 import pytest
 from unittest.mock import Mock
 
-from automission.models import PlanCriterion, PlanDraft, PlanGroup
+from automission.models import PlanCriterion, PlanDraft, PlanGroup, VerificationSurface
 from automission.planner import validate_dag, PlanValidationError
-from automission.planner import (
-    render_mission_md,
-    render_acceptance_md,
-    render_verify_sh,
-)
+from automission.planner import render_mission_md, render_acceptance_md
 from automission.planner import Planner
 from automission.acceptance import parse_acceptance_md
 
 
 def _make_draft(groups: list[PlanGroup], **kwargs) -> PlanDraft:
     defaults = dict(
-        mission_summary="test", constraints=[], verify_command="pytest", assumptions=[]
+        mission_summary="test",
+        constraints=[],
+        verification_surface=VerificationSurface(runner="pytest", targets=["tests/"]),
+        assumptions=[],
     )
     defaults.update(kwargs)
     return PlanDraft(groups=groups, **defaults)
@@ -132,7 +131,9 @@ class TestRenderers:
             ],
             mission_summary="Build a TODO API with authentication",
             constraints=["All responses in JSON", "JWT tokens for auth"],
-            verify_command="pytest tests/ -v",
+            verification_surface=VerificationSurface(
+                runner="pytest", targets=["tests/"], options="-v"
+            ),
             assumptions=["Python with Flask"],
         )
 
@@ -162,12 +163,6 @@ class TestRenderers:
         auth_idx = next(i for i, line in enumerate(lines) if "Auth Schema" in line)
         next_lines = [line for line in lines[auth_idx + 1 :] if line.strip()]
         assert not next_lines[0].startswith("Depends on:")
-
-    def test_render_verify_sh(self, sample_draft):
-        result = render_verify_sh(sample_draft)
-        assert result.startswith("#!/usr/bin/env bash")
-        assert "set -euo pipefail" in result
-        assert "pytest tests/ -v" in result
 
     def test_render_acceptance_md_single_group_no_deps(self):
         draft = _make_draft(groups=[_make_group("setup", "setup")])
@@ -204,7 +199,11 @@ VALID_PLAN_INPUT = {
             ],
         },
     ],
-    "verify_command": "pytest tests/ -v",
+    "verification_surface": {
+        "runner": "pytest",
+        "targets": ["tests/"],
+        "options": "-v",
+    },
     "assumptions": ["Python"],
 }
 
@@ -228,7 +227,7 @@ class TestPlanner:
         assert len(draft.groups) == 2
         assert draft.groups[0].id == "auth_schema"
         assert draft.groups[1].depends_on == ["auth_schema"]
-        assert draft.verify_command == "pytest tests/ -v"
+        assert draft.verification_surface.runner == "pytest"
 
     def test_plan_passes_model_to_backend(self):
         backend = _mock_backend(VALID_PLAN_INPUT)
@@ -352,7 +351,9 @@ class TestRoundTrip:
                     ],
                 ),
             ],
-            verify_command="pytest tests/ -v --tb=short",
+            verification_surface=VerificationSurface(
+                runner="pytest", targets=["tests/"], options="-v --tb=short"
+            ),
             assumptions=["Python", "SQLite"],
         )
 
@@ -362,7 +363,6 @@ class TestRoundTrip:
         # Render
         acceptance_md = render_acceptance_md(draft)
         mission_md = render_mission_md(draft)
-        verify_sh = render_verify_sh(draft)
 
         # Parse back
         parsed_groups = parse_acceptance_md(acceptance_md)
@@ -380,4 +380,3 @@ class TestRoundTrip:
         # Verify file contents
         assert "Build a REST API" in mission_md
         assert "JSON only" in mission_md
-        assert "pytest tests/ -v --tb=short" in verify_sh

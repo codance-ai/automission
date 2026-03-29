@@ -18,8 +18,9 @@ from automission.loop import _derive_contract
 from automission.models import (
     AcceptanceGroup,
     Criterion,
-    CriterionResult,
-    VerifierResult,
+    CriticResult,
+    HarnessResult,
+    VerificationResult,
 )
 
 
@@ -194,37 +195,34 @@ class TestDeriveContractScoping:
     """_derive_contract should scope to target_groups when provided."""
 
     def _make_verification(self):
-        return VerifierResult(
-            contract_passed=False,
-            mission_passed=False,
-            gate_source="script",
-            passed_criteria=[
-                CriterionResult(criterion="A criterion 1", passed=True, detail="ok"),
-            ],
-            failed_criteria=[
-                CriterionResult(criterion="B criterion 1", passed=False, detail="fail"),
-                CriterionResult(criterion="C criterion 1", passed=False, detail="fail"),
-            ],
-            group_statuses={"a": True, "b": False, "c": False},
-            suggestion="Fix B and C",
+        return VerificationResult(
+            harness=HarnessResult(passed=False, exit_code=1, stdout="", stderr=""),
+            critic=CriticResult(
+                summary="Fix B and C",
+                root_cause="B and C incomplete",
+                next_actions=["Fix B criterion 1", "Fix C criterion 1"],
+                blockers=[],
+                group_statuses={"a": True, "b": False, "c": False},
+            ),
         )
 
     def test_no_target_groups_includes_all(self):
         vr = self._make_verification()
-        contract = _derive_contract(vr)
-        assert "B criterion 1" in contract.done_criteria
-        assert "C criterion 1" in contract.done_criteria
-        assert "A criterion 1" in contract.non_goals
+        groups = _make_chain_groups()
+        contract = _derive_contract(vr, all_groups=groups)
+        # b and c are incomplete, but c depends on b — only b should be in focus
+        assert "b" in contract.focus_groups
+        # a is completed
+        assert "a" in contract.preserve_groups
 
     def test_target_groups_scopes_contract(self):
         vr = self._make_verification()
         groups = _make_chain_groups()
         target = [g for g in groups if g.id == "b"]  # only group B
-        contract = _derive_contract(vr, target_groups=target)
-        assert "B criterion 1" in contract.done_criteria
-        assert "C criterion 1" not in contract.done_criteria
-        # A criterion is not in target, so excluded from non_goals
-        assert "A criterion 1" not in contract.non_goals
+        contract = _derive_contract(vr, all_groups=groups, target_groups=target)
+        assert "b" in contract.focus_groups
+        # c is not in target, so not in focus
+        assert "c" not in contract.focus_groups
 
 
 # ── Acceptance Parsing with Dependencies ──
@@ -363,16 +361,19 @@ class TestSingleAgentFrontierLoop:
 
         from automission.executor import _run_single_agent_frontier
         from automission.events import EventWriter
-        from automission.verifier import Verifier
+        from automission.critic import Critic
+        from automission.harness import Harness
         from conftest import MockCriticBackend
 
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         with EventWriter(ws / "events.jsonl") as ew:
             outcome = _run_single_agent_frontier(
                 mission_id="dag-001",
                 ws=ws,
                 backend=backend,
-                verifier=verifier,
+                harness=harness,
+                critic=critic,
                 max_iterations=20,
                 max_cost=10.0,
                 timeout=3600,
@@ -416,16 +417,19 @@ class TestSingleAgentFrontierLoop:
 
         from automission.executor import _run_single_agent_frontier
         from automission.events import EventWriter
-        from automission.verifier import Verifier
+        from automission.critic import Critic
+        from automission.harness import Harness
         from conftest import MockCriticBackend
 
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
         with EventWriter(ws / "events.jsonl") as ew:
             _run_single_agent_frontier(
                 mission_id="dag-002",
                 ws=ws,
                 backend=backend,
-                verifier=verifier,
+                harness=harness,
+                critic=critic,
                 max_iterations=20,
                 max_cost=10.0,
                 timeout=3600,

@@ -654,7 +654,12 @@ class TestPlannerIntegration:
     @patch("automission.planner.Planner")
     def test_planner_runs_when_no_acceptance(self, mock_planner_cls, runner):
         """When no --acceptance, Planner should be called."""
-        from automission.models import PlanCriterion, PlanDraft, PlanGroup
+        from automission.models import (
+            PlanCriterion,
+            PlanDraft,
+            PlanGroup,
+            VerificationSurface,
+        )
 
         mock_draft = PlanDraft(
             mission_summary="Build a calc",
@@ -668,7 +673,9 @@ class TestPlannerIntegration:
                     ],
                 )
             ],
-            verify_command="pytest tests/ -v",
+            verification_surface=VerificationSurface(
+                runner="pytest", targets=["tests/"], options="-v"
+            ),
             assumptions=["Python"],
         )
         mock_planner = MagicMock()
@@ -692,7 +699,12 @@ class TestPlannerIntegration:
     @patch("automission.planner.Planner")
     def test_planner_yes_skips_confirmation(self, mock_planner_cls, runner):
         """--yes should skip the [Y/n/edit] prompt."""
-        from automission.models import PlanCriterion, PlanDraft, PlanGroup
+        from automission.models import (
+            PlanCriterion,
+            PlanDraft,
+            PlanGroup,
+            VerificationSurface,
+        )
 
         mock_draft = PlanDraft(
             mission_summary="Build a calc",
@@ -704,7 +716,9 @@ class TestPlannerIntegration:
                     criteria=[PlanCriterion(text="works", verification_hint="test")],
                 )
             ],
-            verify_command="pytest",
+            verification_surface=VerificationSurface(
+                runner="pytest", targets=["tests/"]
+            ),
             assumptions=[],
         )
         mock_planner = MagicMock()
@@ -730,7 +744,12 @@ class TestPlannerIntegration:
     @patch("automission.planner.Planner")
     def test_planner_user_declines(self, mock_planner_cls, runner):
         """When user types 'n', exit 0 without running mission."""
-        from automission.models import PlanCriterion, PlanDraft, PlanGroup
+        from automission.models import (
+            PlanCriterion,
+            PlanDraft,
+            PlanGroup,
+            VerificationSurface,
+        )
 
         mock_draft = PlanDraft(
             mission_summary="Build a calc",
@@ -742,7 +761,9 @@ class TestPlannerIntegration:
                     criteria=[PlanCriterion(text="works", verification_hint="test")],
                 )
             ],
-            verify_command="pytest",
+            verification_surface=VerificationSurface(
+                runner="pytest", targets=["tests/"]
+            ),
             assumptions=[],
         )
         mock_planner = MagicMock()
@@ -775,7 +796,12 @@ class TestEnsureDockerBeforePlanner:
             call_order.append("create_structured_backend")
             return MagicMock()
 
-        from automission.models import PlanCriterion, PlanDraft, PlanGroup
+        from automission.models import (
+            PlanCriterion,
+            PlanDraft,
+            PlanGroup,
+            VerificationSurface,
+        )
 
         mock_draft = PlanDraft(
             mission_summary="test",
@@ -787,7 +813,9 @@ class TestEnsureDockerBeforePlanner:
                     criteria=[PlanCriterion(text="works", verification_hint="check")],
                 )
             ],
-            verify_command="pytest",
+            verification_surface=VerificationSurface(
+                runner="pytest", targets=["tests/"]
+            ),
             assumptions=[],
         )
         mock_planner = MagicMock()
@@ -1079,63 +1107,36 @@ class TestFmtChangedFiles:
 class TestRenderCriteria:
     """Tests for _render_criteria helper."""
 
-    def test_failed_and_passed(self, capsys):
+    def test_summary_and_group_statuses(self, capsys):
         from automission.cli import _render_criteria
 
         event = {
-            "failed_criteria": [
-                {
-                    "criterion": "CLI rejects missing expression",
-                    "group": "input_handling",
-                },
-            ],
-            "passed_criteria": [
-                {"criterion": "1+1 returns 2", "group": "basic_arithmetic"},
-            ],
+            "summary": "Tests failing, 1/2 groups pass.",
+            "group_statuses": {"basic_arithmetic": True, "input_handling": False},
+            "next_actions": ["Fix input handling"],
         }
         _render_criteria(event)
         out = capsys.readouterr().out
-        assert "✗" in out
-        assert "[input_handling]" in out
-        assert "CLI rejects missing expression" in out
-        assert "✓" in out
-        assert "[basic_arithmetic]" in out
-        assert "1+1 returns 2" in out
+        assert "Tests failing" in out
+        assert "basic_arithmetic" in out
+        assert "input_handling" in out
 
-    def test_verbose_detail(self, capsys):
+    def test_verbose_next_actions(self, capsys):
         from automission.cli import _render_criteria
 
         event = {
-            "failed_criteria": [
-                {
-                    "criterion": "Division by zero",
-                    "group": "error_handling",
-                    "detail": "got exit code 0",
-                },
-            ],
-            "passed_criteria": [],
+            "summary": "Division by zero not handled.",
+            "group_statuses": {"error_handling": False},
+            "next_actions": ["Handle division by zero case"],
         }
         _render_criteria(event, verbose=True)
         out = capsys.readouterr().out
-        assert "→ got exit code 0" in out
+        assert "Handle division by zero case" in out
 
-    def test_no_group(self, capsys):
+    def test_empty_event(self, capsys):
         from automission.cli import _render_criteria
 
-        event = {
-            "failed_criteria": [{"criterion": "some criterion", "group": ""}],
-            "passed_criteria": [],
-        }
-        _render_criteria(event)
-        out = capsys.readouterr().out
-        assert "some criterion" in out
-        # No [group] tag when group is empty
-        assert "[]" not in out
-
-    def test_empty_criteria(self, capsys):
-        from automission.cli import _render_criteria
-
-        _render_criteria({"failed_criteria": [], "passed_criteria": []})
+        _render_criteria({})
         out = capsys.readouterr().out
         assert out == ""
 
@@ -1198,48 +1199,34 @@ class TestRenderEventRichOutput:
         out = capsys.readouterr().out
         assert "changed" not in out
 
-    def test_verification_with_criteria_and_suggestion(self, capsys):
+    def test_verification_with_summary_and_groups(self, capsys):
         from automission.cli import _render_event
 
         event = {
             "type": "verification",
             "passed": False,
-            "score": 0.4,
-            "failed_criteria": [
-                {
-                    "criterion": "CLI rejects missing expression",
-                    "group": "input_handling",
-                },
-            ],
-            "passed_criteria": [
-                {"criterion": "1+1 returns 2", "group": "basic_arithmetic"},
-            ],
-            "suggestion": "Fix subprocess call to use relative path",
+            "summary": "Tests failing, input handling incomplete.",
+            "group_statuses": {"basic_arithmetic": True, "input_handling": False},
+            "next_actions": ["Fix subprocess call to use relative path"],
         }
         _render_event(event)
         out = capsys.readouterr().out
         assert "FAIL" in out
-        assert "score=0.4" in out
-        assert "✗" in out
-        assert "[input_handling]" in out
-        assert "✓" in out
-        assert "[basic_arithmetic]" in out
-        assert "suggestion: Fix subprocess call" in out
+        assert "input_handling" in out
+        assert "basic_arithmetic" in out
+        assert "Tests failing" in out
 
-    def test_verification_pass_no_suggestion(self, capsys):
+    def test_verification_pass(self, capsys):
         from automission.cli import _render_event
 
         event = {
             "type": "verification",
             "passed": True,
-            "score": 1.0,
-            "failed_criteria": [],
-            "passed_criteria": [
-                {"criterion": "All tests pass", "group": "testing"},
-            ],
-            "suggestion": "",
+            "summary": "All tests pass.",
+            "group_statuses": {"testing": True},
+            "next_actions": [],
         }
         _render_event(event)
         out = capsys.readouterr().out
         assert "PASS" in out
-        assert "suggestion" not in out
+        assert "All tests pass" in out

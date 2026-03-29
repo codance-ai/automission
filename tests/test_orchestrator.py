@@ -8,8 +8,9 @@ import pytest
 
 from automission.backend.mock import MockBackend
 from automission.db import Ledger
+from automission.critic import Critic
+from automission.harness import Harness
 from automission.orchestrator import run_multi_agent
-from automission.verifier import Verifier
 from conftest import MockCriticBackend
 from automission.workspace import create_mission
 
@@ -118,14 +119,16 @@ class TestRunMultiAgent:
             init_files_dir=fixture_dir / "workspace",
             agents=2,
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         outcome = run_multi_agent(
             mission_id="orch-001",
             mission_dir=ws,
             n_agents=2,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=20,
             max_cost=10.0,
             timeout=3600,
@@ -163,7 +166,8 @@ class TestRunMultiAgent:
             init_files_dir=fixture_dir / "workspace",
             agents=2,
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         call_count = 0
         lock = threading.Lock()
@@ -179,7 +183,8 @@ class TestRunMultiAgent:
             mission_dir=ws,
             n_agents=2,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=20,
             max_cost=10.0,
             timeout=3600,
@@ -191,14 +196,16 @@ class TestRunMultiAgent:
     def test_single_agent_completes(self, orch_workspace):
         """Single agent mode should work correctly through orchestrator."""
         ws, backend = orch_workspace
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         outcome = run_multi_agent(
             mission_id="orch-test",
             mission_dir=ws,
             n_agents=1,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=20,
             max_cost=10.0,
             timeout=3600,
@@ -230,14 +237,16 @@ class TestRunMultiAgent:
             init_files_dir=fixture_dir / "workspace",
             agents=2,
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         run_multi_agent(
             mission_id="orch-cleanup",
             mission_dir=ws,
             n_agents=2,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=20,
             max_cost=10.0,
             timeout=3600,
@@ -274,14 +283,16 @@ class TestRunMultiAgent:
             agents=2,
             max_iterations=3,
         )
-        verifier = Verifier(backend=MockCriticBackend())
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
 
         outcome = run_multi_agent(
             mission_id="orch-limit",
             mission_dir=ws,
             n_agents=2,
             backend=backend,
-            verifier=verifier,
+            harness=harness,
+            critic=critic,
             max_iterations=3,
             max_cost=10.0,
             timeout=3600,

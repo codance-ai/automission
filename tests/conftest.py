@@ -8,7 +8,7 @@ import pytest
 
 
 class MockCriticBackend:
-    """Mock StructuredOutputBackend that evaluates based on gate result in the prompt.
+    """Mock StructuredOutputBackend for the new Critic.
 
     Parses the critic prompt to determine gate pass/fail and group IDs,
     then returns appropriate per-group statuses. Used in tests as a
@@ -26,35 +26,25 @@ class MockCriticBackend:
             if groups_match
             else []
         )
-        # Extract criteria from "- [group_name] criterion_text"
-        criteria = re.findall(r"- \[.+?\] (.+)", prompt)
 
         if gate_passed:
             return {
-                "passed_criteria": [
-                    {"criterion": c, "passed": True, "detail": "Gate passed"}
-                    for c in criteria
-                ],
-                "failed_criteria": [],
+                "summary": "All tests pass.",
+                "root_cause": "",
+                "next_actions": [],
+                "blockers": [],
                 "group_statuses": [
                     {"group_id": gid, "completed": True} for gid in group_ids
                 ],
-                "suggestion": "",
-                "reason": "All gate checks passed.",
-                "score": 1.0,
             }
         return {
-            "passed_criteria": [],
-            "failed_criteria": [
-                {"criterion": c, "passed": False, "detail": "Gate failed"}
-                for c in criteria
-            ],
+            "summary": "Tests failing, implementation incomplete.",
+            "root_cause": "Gate verification failed.",
+            "next_actions": ["Review the test output and fix failing tests."],
+            "blockers": [],
             "group_statuses": [
                 {"group_id": gid, "completed": False} for gid in group_ids
             ],
-            "suggestion": "Review the test output and fix failing tests.",
-            "reason": "Gate verification failed.",
-            "score": 0.0,
         }
 
 
@@ -139,4 +129,4 @@ def _unwrap_docker_in_verifier(monkeypatch):
             encoding=kwargs.get("encoding", None),
         )
 
-    monkeypatch.setattr("automission.verifier.subprocess.run", _patched_run)
+    monkeypatch.setattr("automission.harness.subprocess.run", _patched_run)
