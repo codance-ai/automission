@@ -35,7 +35,7 @@ _SELECT_STYLE = Style(
         ("qmark", "fg:cyan"),
         ("question", "bold"),
         ("pointer", "fg:cyan bold"),
-        ("highlighted", "fg:cyan bold"),
+        ("highlighted", "fg:cyan bold noreverse"),
         ("selected", "fg:cyan"),
         ("answer", "fg:green bold"),
         ("instruction", "fg:#888888"),
@@ -163,6 +163,9 @@ def init(force: bool) -> None:
             choices=backends,
             default=planner_backend,
             qmark="›",
+            style=_SELECT_STYLE,
+            pointer="›",
+            instruction="",
         ).ask()
         if verifier_backend is None:
             raise SystemExit(0)
