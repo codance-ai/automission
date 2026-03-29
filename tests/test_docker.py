@@ -144,6 +144,23 @@ class TestBuildDockerCmd:
         assert cmd[v_indices[2] + 1] == "/home/user/.codex:/root/.codex"
 
 
+    def test_custom_container_workdir(self, tmp_path):
+        workdir = tmp_path / "project"
+        workdir.mkdir()
+        cmd = build_docker_cmd(
+            "myimage:latest",
+            ["bash", "verify.sh"],
+            workdir=workdir,
+            container_workdir="/tmp/_verify_abc123",
+        )
+        v_idx = cmd.index("-v")
+        assert ":/tmp/_verify_abc123" in cmd[v_idx + 1]
+        w_idx = cmd.index("-w")
+        assert cmd[w_idx + 1] == "/tmp/_verify_abc123"
+        # Default /workspace should not appear
+        assert "/workspace" not in cmd[v_idx + 1]
+
+
 class TestEnsureDocker:
     def test_daemon_not_available(self):
         with patch("automission.docker.subprocess.run") as mock_run:

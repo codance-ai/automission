@@ -22,18 +22,21 @@ def build_docker_cmd(
     env_pairs: Optional[dict[str, str]] = None,
     volumes: Optional[list[tuple[str, str]]] = None,
     rw_volumes: Optional[list[tuple[str, str]]] = None,
+    container_workdir: str = "/workspace",
 ) -> list[str]:
     """Build a ``docker run --rm`` command list.
 
     Args:
         image: Docker image name. Must match DOCKER_IMAGE_PATTERN.
         inner_cmd: Command to run inside the container.
-        workdir: If provided, mount as ``-v {workdir.resolve()}:/workspace -w /workspace``.
+        workdir: If provided, mount as ``-v {workdir.resolve()}:{container_workdir} -w {container_workdir}``.
         env_keys: Env var names to pass via ``-e NAME``. Docker inherits values from host env.
         env_pairs: Env var key-value pairs to pass via ``-e NAME=VALUE``.
         volumes: List of (host_path, container_path) tuples to mount read-only.
         rw_volumes: List of (host_path, container_path) tuples to mount read-write.
             Used for OAuth token files that need write access for token refresh.
+        container_workdir: Container path to mount workdir at. Defaults to ``/workspace``.
+            The verifier uses a randomized path to detect hardcoded Docker paths.
 
     Returns:
         A list[str] ready for ``subprocess.run()``.
@@ -47,7 +50,7 @@ def build_docker_cmd(
     cmd = ["docker", "run", "--rm"]
 
     if workdir is not None:
-        cmd += ["-v", f"{workdir.resolve()}:/workspace", "-w", "/workspace"]
+        cmd += ["-v", f"{workdir.resolve()}:{container_workdir}", "-w", container_workdir]
 
     for host_path, container_path in volumes or []:
         cmd += ["-v", f"{host_path}:{container_path}:ro"]

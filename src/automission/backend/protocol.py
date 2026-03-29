@@ -46,6 +46,11 @@ def format_automission_md(stable: StableContext) -> str:
     )
     lines.append("- Read ACCEPTANCE.md before starting work")
     lines.append("- Run verify.sh after making changes")
+    lines.append(
+        "- Never hardcode /workspace or any absolute path in code or tests. "
+        "Use relative paths (e.g., ./file.py), Path(__file__).parent, or os.getcwd(). "
+        "Your code must be portable and work outside of Docker."
+    )
     for rule in stable.rules:
         lines.append(f"- {rule}")
     lines.append("")

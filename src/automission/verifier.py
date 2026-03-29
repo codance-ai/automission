@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -82,7 +83,13 @@ def run_verify_sh(
     script_path: Path,
     docker_image: str = "ghcr.io/codance-ai/automission:latest",
 ) -> dict[str, Any]:
-    """Run verify.sh and return structured gate result."""
+    """Run verify.sh and return structured gate result.
+
+    Uses a randomized container mount path (instead of /workspace) to detect
+    code that hardcodes Docker-specific paths. If generated tests reference
+    /workspace, they will fail here — catching portability bugs before the
+    mission is marked as passed.
+    """
     try:
         # verify.sh must be inside workspace to mount correctly
         try:
@@ -99,7 +106,17 @@ def run_verify_sh(
                 "stderr": f"verify.sh at {script_path} is outside workspace {workdir}, cannot mount in Docker",
                 "json_output": None,
             }
-        cmd = build_docker_cmd(docker_image, ["bash", str(rel_script)], workdir=workdir)
+        # Randomized mount path to catch hardcoded /workspace references
+        nonce = uuid.uuid4().hex[:8]
+        container_workdir = f"/tmp/_verify_{nonce}"
+        cmd = build_docker_cmd(
+            docker_image,
+            # Configure git safe.directory before running verify.sh so git
+            # operations work at the non-standard mount path.
+            ["bash", "-c", f'git config --global --add safe.directory "{container_workdir}" && bash "{rel_script}"'],
+            workdir=workdir,
+            container_workdir=container_workdir,
+        )
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=120, encoding="utf-8"
         )
