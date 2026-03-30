@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
+import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from automission.backend.protocol import AgentBackend
 from automission.db import Ledger
@@ -22,6 +23,9 @@ from automission.models import (
 )
 from automission.critic import Critic
 from automission.harness import Harness
+
+if TYPE_CHECKING:
+    from automission.mission_log import MissionLogger
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,7 @@ def run_single_iteration(
     timeout_s: int = 300,
     mission_dir: Path | None = None,
     target_groups: list[AcceptanceGroup] | None = None,
+    mission_logger: "MissionLogger | None" = None,
 ) -> VerificationResult:
     """Run one attempt: prompt -> execute -> commit -> verify -> record.
 
@@ -60,6 +65,7 @@ def run_single_iteration(
             stall_hint=False,
             mission_dir=mission_dir,
             target_groups=target_groups,
+            mission_logger=mission_logger,
         )
 
         # Update mission status (matches original behavior)
@@ -88,6 +94,7 @@ def run_loop(
     mission_dir: Path | None = None,
     target_groups: list[AcceptanceGroup] | None = None,
     event_writer: "EventWriter | None" = None,
+    mission_logger: "MissionLogger | None" = None,
 ) -> LoopResult:
     """Main agent loop with circuit breakers, stall detection, and resume.
 
@@ -198,6 +205,7 @@ def run_loop(
                 mission_dir=mission_dir,
                 target_groups=target_groups,
                 event_writer=event_writer,
+                mission_logger=mission_logger,
             )
 
             # ── Check pass ──
@@ -243,6 +251,7 @@ def _run_one_iteration(
     mission_dir: Path | None = None,
     target_groups: list[AcceptanceGroup] | None = None,
     event_writer: "EventWriter | None" = None,
+    mission_logger: "MissionLogger | None" = None,
 ) -> VerificationResult:
     """Run one attempt: prompt -> execute -> commit -> verify -> record.
 
@@ -269,6 +278,8 @@ def _run_one_iteration(
     dirty_state = _get_dirty_state(workdir)
 
     # ── Build prompt ──
+    t_prompt_start = time.monotonic()
+
     contract = None
     if last_verification is None:
         # First attempt
@@ -290,6 +301,8 @@ def _run_one_iteration(
             dirty_state=dirty_state,
         )
 
+    t_prompt_end = time.monotonic()
+
     # ── Run attempt ──
     spec = AttemptSpec(
         attempt_id=attempt_id,
@@ -297,6 +310,7 @@ def _run_one_iteration(
         workdir=workdir,
         prompt=prompt,
         timeout_s=timeout_s,
+        output_dir=(mission_dir / "agent_outputs") if mission_dir else None,
     )
     logger.info("Running attempt %s (#%d)", attempt_id, attempt_number)
     if event_writer:
@@ -311,15 +325,52 @@ def _run_one_iteration(
                 ", ".join(focus_names) if focus_names else "all groups"
             )
         event_writer.emit("attempt_start", start_data)
+    if mission_logger:
+        scope_str = (
+            "all groups (first attempt)"
+            if contract is None
+            else _format_scope(contract, groups)
+        )
+        mission_logger.attempt_start(
+            attempt_number=attempt_number,
+            agent_id=agent_id,
+            scope=scope_str,
+        )
+        mission_logger.attempt_prompt(prompt=prompt, prompt_len=len(prompt))
     attempt_result = backend.run_attempt(spec)
 
     # ── Auto-commit ──
     commit_hash = _git_commit_if_changed(workdir, attempt_number)
 
+    if mission_logger:
+        stdout_size = None
+        if attempt_result.stdout_path and attempt_result.stdout_path.exists():
+            stdout_size = attempt_result.stdout_path.stat().st_size
+        mission_logger.attempt_execution(
+            status=attempt_result.status,
+            exit_code=attempt_result.exit_code,
+            duration_s=attempt_result.duration_s,
+            token_input=attempt_result.token_usage.input_tokens,
+            token_output=attempt_result.token_usage.output_tokens,
+            cost_usd=attempt_result.cost_usd,
+            changed_files=attempt_result.changed_files,
+            commit_hash=commit_hash,
+            stdout_path=str(attempt_result.stdout_path)
+            if attempt_result.stdout_path
+            else None,
+            stdout_size=stdout_size,
+        )
+
     # ── Verify: Harness (deterministic) then Critic (LLM) ──
     verify_sh = workdir / "verify.sh"
+    t_harness_start = time.monotonic()
     harness_result = harness.run(workdir, verify_sh if verify_sh.exists() else None)
+    t_harness_end = time.monotonic()
+
+    t_critic_start = time.monotonic()
     critic_result = critic.analyze(harness_result, groups)
+    t_critic_end = time.monotonic()
+
     verification = VerificationResult(harness=harness_result, critic=critic_result)
 
     # ── Record to ledger ──
@@ -360,6 +411,32 @@ def _run_one_iteration(
                 "group_analysis": verification.group_analysis,
                 "next_actions": verification.critic.next_actions,
             },
+        )
+
+    if mission_logger:
+        group_names = {g.id: g.name for g in groups}
+        group_statuses = {
+            group_names.get(gid, gid): done
+            for gid, done in verification.group_analysis.items()
+        }
+        mission_logger.verification(
+            passed=verification.gate_passed,
+            exit_code=harness_result.exit_code,
+            harness_duration_s=t_harness_end - t_harness_start,
+            stdout=harness_result.stdout,
+            stderr=harness_result.stderr,
+            critic_duration_s=t_critic_end - t_critic_start,
+            critic_cost_usd=None,
+            summary=critic_result.summary,
+            root_cause=critic_result.root_cause,
+            next_actions=critic_result.next_actions,
+            group_statuses=group_statuses,
+        )
+        mission_logger.timing(
+            prompt_s=t_prompt_end - t_prompt_start,
+            agent_s=attempt_result.duration_s,
+            harness_s=t_harness_end - t_harness_start,
+            critic_s=t_critic_end - t_critic_start,
         )
 
     logger.info(
@@ -610,6 +687,19 @@ def _get_dirty_state(workdir: Path, max_lines: int = 50) -> str | None:
             + f"\n... and {len(lines) - max_lines} more files"
         )
     return status
+
+
+def _format_scope(contract: AttemptContract, groups: list[AcceptanceGroup]) -> str:
+    """Format scope string for mission log from contract."""
+    if contract.focus_groups:
+        group_map = {g.id: g.name for g in groups}
+        focus_names = [group_map.get(gid, gid) for gid in contract.focus_groups]
+        preserve_names = [group_map.get(gid, gid) for gid in contract.preserve_groups]
+        scope = f"focus [{', '.join(focus_names)}]"
+        if preserve_names:
+            scope += f" | preserve [{', '.join(preserve_names)}]"
+        return scope
+    return "all groups"
 
 
 def _load_last_verification(

@@ -1437,6 +1437,8 @@ _EXPORT_EXCLUDE = {
     "events.jsonl",
     "mission.pid",
     "mission.log",
+    "executor.log",
+    "agent_outputs",
 }
 
 

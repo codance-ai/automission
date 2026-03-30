@@ -66,6 +66,17 @@ def run_docker_attempt(
         result = subprocess.run(cmd, timeout=spec.timeout_s, capture_output=True)
         duration = time.monotonic() - start
 
+        # Save agent output to files if output_dir is set
+        stdout_path = None
+        stderr_path = None
+        if spec.output_dir is not None:
+            spec.output_dir.mkdir(parents=True, exist_ok=True)
+            stdout_path = spec.output_dir / f"{spec.attempt_id}.stdout"
+            stdout_path.write_bytes(result.stdout)
+            if result.stderr:
+                stderr_path = spec.output_dir / f"{spec.attempt_id}.stderr"
+                stderr_path.write_bytes(result.stderr)
+
         cost_usd, token_usage = parse_output(result.stdout)
 
         changed_after = _git_file_set(spec.workdir)
@@ -79,6 +90,8 @@ def run_docker_attempt(
             cost_usd=cost_usd,
             duration_s=duration,
             changed_files=changed_files,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
         )
 
     except subprocess.TimeoutExpired:

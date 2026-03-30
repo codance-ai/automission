@@ -106,3 +106,79 @@ class TestRunDockerAttempt:
             lambda s: (0.0, TokenUsage()),
         )
         assert result.status == "crashed"
+
+
+class TestRunDockerAttemptOutputSaving:
+    @patch("automission.backend._helpers.subprocess.run")
+    @patch("automission.backend._helpers._git_file_set", return_value=set())
+    def test_saves_stdout_when_output_dir_set(self, mock_git, mock_run, tmp_path):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=b'{"cost_usd": 0.1}',
+            stderr=b"debug info",
+        )
+        output_dir = tmp_path / "agent_outputs"
+        spec = AttemptSpec(
+            attempt_id="test-a1",
+            mission_id="m1",
+            workdir=tmp_path,
+            prompt="test",
+            timeout_s=300,
+            output_dir=output_dir,
+        )
+        result = run_docker_attempt(
+            spec,
+            "img:latest",
+            ["cmd"],
+            ["KEY"],
+            lambda s: (0.5, TokenUsage(input_tokens=100, output_tokens=50)),
+        )
+        assert result.stdout_path is not None
+        assert result.stdout_path.exists()
+        assert b'{"cost_usd"' in result.stdout_path.read_bytes()
+        assert result.stderr_path is not None
+        assert result.stderr_path.exists()
+
+    @patch("automission.backend._helpers.subprocess.run")
+    @patch("automission.backend._helpers._git_file_set", return_value=set())
+    def test_no_output_dir_means_no_files(self, mock_git, mock_run, tmp_path):
+        mock_run.return_value = MagicMock(returncode=0, stdout=b"{}", stderr=b"")
+        spec = AttemptSpec(
+            attempt_id="test-a2",
+            mission_id="m1",
+            workdir=tmp_path,
+            prompt="test",
+            timeout_s=300,
+        )
+        result = run_docker_attempt(
+            spec,
+            "img:latest",
+            ["cmd"],
+            ["KEY"],
+            lambda s: (0.0, TokenUsage()),
+        )
+        assert result.stdout_path is None
+        assert result.stderr_path is None
+
+    @patch("automission.backend._helpers.subprocess.run")
+    @patch("automission.backend._helpers._git_file_set", return_value=set())
+    def test_no_stderr_file_when_stderr_empty(self, mock_git, mock_run, tmp_path):
+        mock_run.return_value = MagicMock(returncode=0, stdout=b'{"x":1}', stderr=b"")
+        output_dir = tmp_path / "outputs"
+        spec = AttemptSpec(
+            attempt_id="test-a3",
+            mission_id="m1",
+            workdir=tmp_path,
+            prompt="test",
+            timeout_s=300,
+            output_dir=output_dir,
+        )
+        result = run_docker_attempt(
+            spec,
+            "img:latest",
+            ["cmd"],
+            ["KEY"],
+            lambda s: (0.0, TokenUsage()),
+        )
+        assert result.stdout_path is not None
+        assert result.stderr_path is None

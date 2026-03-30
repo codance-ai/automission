@@ -52,6 +52,7 @@ class AttemptSpec:
     prompt: str
     timeout_s: int = 300
     env: dict[str, str] = field(default_factory=dict)
+    output_dir: Path | None = None
 
 
 @dataclass
@@ -71,6 +72,8 @@ class AttemptResult:
     cost_usd: float = 0.0
     duration_s: float = 0.0
     changed_files: list[str] = field(default_factory=list)
+    stdout_path: Path | None = None
+    stderr_path: Path | None = None
 
 
 @dataclass

@@ -7,7 +7,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from automission.backend.protocol import AgentBackend
 from automission.db import Ledger
@@ -18,6 +18,9 @@ from automission.models import MissionOutcome
 from automission.critic import Critic
 from automission.harness import Harness, run_verify_sh
 from automission.worktree import cleanup_worktree, create_agent_worktree, sync_from_main
+
+if TYPE_CHECKING:
+    from automission.mission_log import MissionLogger
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,7 @@ def run_multi_agent(
     timeout: int = 3600,
     cancel_flag: Callable[[], bool] | None = None,
     event_writer: "EventWriter | None" = None,
+    mission_logger: "MissionLogger | None" = None,
 ) -> str:
     """Orchestrate multiple agents working on a mission in parallel.
 
@@ -95,6 +99,7 @@ def run_multi_agent(
                 _is_cancelled,
                 cancel_event,
                 event_writer,
+                mission_logger,
             ),
             name=f"agent-worker-{agent_id}",
             daemon=True,
@@ -180,6 +185,7 @@ def _agent_worker(
     cancel_flag: Callable[[], bool],
     cancel_event: threading.Event,
     event_writer: "EventWriter | None" = None,
+    mission_logger: "MissionLogger | None" = None,
 ) -> None:
     """Worker function for a single agent thread.
 
@@ -285,6 +291,13 @@ def _agent_worker(
                 time.sleep(1)
                 continue
 
+            if mission_logger:
+                mission_logger.orchestrator_claim(
+                    agent_id=agent_id,
+                    group_id=group_id,
+                    frontier=[g["id"] for g in frontier],
+                )
+
             # Sync workspace from main
             if not sync_from_main(worktree_dir):
                 logger.warning("%s: sync from main failed, releasing claim", agent_id)
@@ -325,6 +338,7 @@ def _agent_worker(
                     mission_dir=mission_dir,
                     target_groups=claimed_group if claimed_group else None,
                     event_writer=event_writer,
+                    mission_logger=mission_logger,
                 )
 
                 logger.info(
@@ -353,6 +367,15 @@ def _agent_worker(
                         )
                     finally:
                         merge_ledger.close()
+
+                    if mission_logger:
+                        mission_logger.merge_result(
+                            agent_id=agent_id,
+                            success=merge_result.success,
+                            commit_hash=merge_result.commit_hash,
+                            verify_passed=verify_passed,
+                            rejected_reason=merge_result.rejected_reason,
+                        )
 
                     if merge_result.success:
                         ledger.release_claim(claim_id, "completed")

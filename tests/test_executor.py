@@ -173,7 +173,7 @@ class TestRunExecutor:
         ws = mission_workspace
         registered = {}
 
-        def _capture_exec(ws_, mid, event_writer, cancel_flag):
+        def _capture_exec(ws_, mid, event_writer, cancel_flag, **kwargs):
             ledger = Ledger(ws_ / "mission.db")
             rt = ledger.get_executor_runtime(mid)
             if rt:
