@@ -65,11 +65,11 @@ while not mission.completed:
                 verification = regression
                 verification.merge_rejected = True
 
-    # 9. Record attempt to ledger
+    # 9. Record attempt to ledger (includes advisory group_analysis)
     ledger.record_attempt(result, commit_hash, verification, contract)
 
-    # 10. Update group statuses + check termination
-    ledger.update_group_statuses(verification.group_statuses)
+    # 10. Check termination
+    # Authority for group completion moved to Executor/Orchestrator
     mission.completed = verification.mission_passed
     check_circuit_breakers(mission, ledger)
     check_stall_recovery(agent, ledger)

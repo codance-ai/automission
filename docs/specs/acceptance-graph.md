@@ -42,7 +42,7 @@ def frontier(groups: list[AcceptanceGroup], statuses: dict[str, bool]) -> list[A
 
 ## Group Completion
 
-A group is complete when all its `required` criteria pass. Group statuses are stored in the ledger and updated after each verification (via `VerifierResult.group_statuses`).
+A group is complete when all its `required` criteria pass. Group completion is stored in the ledger (authoritative) and is updated by the Executor or Orchestrator based on the advisory `VerificationResult.group_analysis` from the Critic. Group analysis results are also stored in the attempt history.
 
 Mission is complete when the frontier is empty (all groups satisfied).
 

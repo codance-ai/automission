@@ -261,9 +261,9 @@ class Ledger:
             )
         self.conn.commit()
 
-    def update_group_statuses(self, statuses: dict[str, bool]) -> None:
+    def update_group_analysis(self, analysis: dict[str, bool]) -> None:
         self.conn.execute("BEGIN")
-        for group_id, completed in statuses.items():
+        for group_id, completed in analysis.items():
             if completed:
                 self.conn.execute(
                     "UPDATE acceptance_groups SET completed = 1, completed_at = CURRENT_TIMESTAMP WHERE id = ?",
