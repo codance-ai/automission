@@ -17,6 +17,7 @@ Decentralized (no orchestrator), no human-in-the-loop.
 - **Docker-first** — all execution runs inside containers for isolation and reproducibility
 - **Daemon mode** — `--detach` to start in background, `attach` to reconnect, `stop`/`resume` to control
 - **Safety rails** — circuit breakers on cost, time, and iterations; 3-step stall detection auto-recovers stuck agents
+- **Detailed mission log** — structured `mission.log` covers the full pipeline (Plan → Agent → Verification) with per-phase timing; raw agent output saved to `agent_outputs/` for deep debugging
 
 ## Quick Start
 
@@ -138,6 +139,8 @@ automission stop <mission-id>   # stop a specific mission
 automission resume <mission-id> # resume a stopped or crashed mission
 automission list                # list all missions
 ```
+
+After a mission completes, `mission.log` in the workspace contains the full execution narrative — every prompt sent, agent results, verify.sh output, critic analysis, and per-phase timing. Raw agent output (Docker stdout/stderr) is saved in `agent_outputs/` for deep debugging.
 
 ## How It Works
 
