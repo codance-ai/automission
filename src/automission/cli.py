@@ -1436,6 +1436,7 @@ _EXPORT_EXCLUDE = {
     "worktrees",
     "events.jsonl",
     "mission.pid",
+    "mission.log",
 }
 
 
