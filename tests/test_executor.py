@@ -142,7 +142,7 @@ class TestRunExecutor:
                 token_output=50,
                 changed_files=[],
                 verification_passed=True,
-                verification_result='{"harness": {"passed": true, "exit_code": 0}, "critic": {"summary": "ok", "group_statuses": {}}}',
+                verification_result='{"harness": {"passed": true, "exit_code": 0}, "critic": {"summary": "ok", "group_analysis": {}}}',
                 commit_hash="abc123",
             )
 

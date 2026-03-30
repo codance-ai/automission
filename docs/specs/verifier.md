@@ -95,7 +95,7 @@ class VerifierResult:
     metrics: dict[str, Any]   # extracted quantitative metrics
     passed_criteria: list[CriterionResult]
     failed_criteria: list[CriterionResult]
-    group_statuses: dict[str, bool]  # per acceptance group: completed or not
+    group_analysis: dict[str, bool]  # per acceptance group: completed or not
     suggestion: str           # actionable focus for next attempt
     reason: str               # human-readable summary
 ```

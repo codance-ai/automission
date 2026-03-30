@@ -122,7 +122,7 @@ class CriticResult:
     root_cause: str = ""
     next_actions: list[str] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
-    group_statuses: dict[str, bool] = field(default_factory=dict)
+    group_analysis: dict[str, bool] = field(default_factory=dict)  # advisory only
 
 
 @dataclass
@@ -138,21 +138,13 @@ class VerificationResult:
 
     @property
     def mission_passed(self) -> bool:
-        """True when gate passes AND all groups are marked complete by Critic.
-
-        Returns False when group_statuses is empty (e.g. Critic LLM failure),
-        even if the gate passed. This is intentional: a transient Critic failure
-        causes a retry rather than incorrectly completing the mission.
-        """
-        return (
-            self.harness.passed
-            and bool(self.critic.group_statuses)
-            and all(self.critic.group_statuses.values())
-        )
+        """True when all tests pass. Deterministic — no LLM dependency."""
+        return self.harness.passed
 
     @property
-    def group_statuses(self) -> dict[str, bool]:
-        return self.critic.group_statuses
+    def group_analysis(self) -> dict[str, bool]:
+        """Advisory group completion from Critic. Not ground truth."""
+        return self.critic.group_analysis
 
     def to_json(self) -> str:
         """Serialize to JSON for ledger storage."""
@@ -170,7 +162,7 @@ class VerificationResult:
                     "root_cause": self.critic.root_cause,
                     "next_actions": self.critic.next_actions,
                     "blockers": self.critic.blockers,
-                    "group_statuses": self.critic.group_statuses,
+                    "group_analysis": self.critic.group_analysis,
                 },
             }
         )
@@ -194,7 +186,7 @@ class VerificationResult:
                 root_cause=c.get("root_cause", ""),
                 next_actions=c.get("next_actions", []),
                 blockers=c.get("blockers", []),
-                group_statuses=c.get("group_statuses", {}),
+                group_analysis=c.get("group_analysis", {}),
             ),
         )
 

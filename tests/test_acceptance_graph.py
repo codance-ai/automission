@@ -202,7 +202,7 @@ class TestDeriveContractScoping:
                 root_cause="B and C incomplete",
                 next_actions=["Fix B criterion 1", "Fix C criterion 1"],
                 blockers=[],
-                group_statuses={"a": True, "b": False, "c": False},
+                group_analysis={"a": True, "b": False, "c": False},
             ),
         )
 

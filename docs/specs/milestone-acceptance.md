@@ -131,7 +131,7 @@ verify.sh:      "python -m pytest tests/ -v"
 - [ ] Frontier computation: initially only db_layer is in the frontier
 - [ ] Agents can only claim groups in the frontier (api_layer is blocked at start)
 - [ ] After db_layer passes: api_layer enters the frontier, agent claims it
-- [ ] VerifierResult includes group_statuses: `{"db_layer": true, "api_layer": false}`
+- [ ] VerifierResult includes group_analysis: `{"db_layer": true, "api_layer": false}`
 - [ ] Two-level pass/fail works: contract_passed (this attempt's scope) vs mission_passed (all groups)
 - [ ] Mission completes only when all groups are satisfied (frontier is empty)
 - [ ] With 2 agents and linear dependency: one agent is idle while waiting for frontier to open (expected)

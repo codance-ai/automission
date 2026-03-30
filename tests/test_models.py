@@ -31,7 +31,7 @@ def test_verification_result_json_roundtrip():
             root_cause="Validation missing",
             next_actions=["Add validation"],
             blockers=[],
-            group_statuses={"auth": True, "api": False},
+            group_analysis={"auth": True, "api": False},
         ),
     )
     restored = VerificationResult.from_json(original.to_json())
@@ -43,7 +43,41 @@ def test_verification_result_json_roundtrip():
     assert restored.critic.summary == "Mostly working"
     assert restored.critic.root_cause == "Validation missing"
     assert restored.critic.next_actions == ["Add validation"]
-    assert restored.group_statuses == {"auth": True, "api": False}
+    assert restored.group_analysis == {"auth": True, "api": False}
+
+
+class TestMissionPassed:
+    """mission_passed depends ONLY on harness.passed — no Critic dependency."""
+
+    def test_harness_passes_empty_group_analysis(self):
+        """Harness passes + empty group_analysis → mission_passed = True."""
+        vr = VerificationResult(
+            harness=HarnessResult(passed=True, exit_code=0),
+            critic=CriticResult(summary="ok", group_analysis={}),
+        )
+        assert vr.mission_passed is True
+
+    def test_harness_passes_groups_incomplete(self):
+        """Harness passes + group_analysis says groups incomplete → mission_passed = True."""
+        vr = VerificationResult(
+            harness=HarnessResult(passed=True, exit_code=0),
+            critic=CriticResult(
+                summary="partial",
+                group_analysis={"auth": True, "api": False},
+            ),
+        )
+        assert vr.mission_passed is True
+
+    def test_harness_fails_groups_complete(self):
+        """Harness fails + group_analysis says all complete → mission_passed = False."""
+        vr = VerificationResult(
+            harness=HarnessResult(passed=False, exit_code=1),
+            critic=CriticResult(
+                summary="looks done",
+                group_analysis={"auth": True, "api": True},
+            ),
+        )
+        assert vr.mission_passed is False
 
 
 def test_acceptance_group_defaults():

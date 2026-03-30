@@ -32,7 +32,7 @@ _CRITIC_JSON_SCHEMA = {
             "items": {"type": "string"},
             "description": "Issues that prevent progress (spec ambiguity, missing deps, etc). Empty if none.",
         },
-        "group_statuses": {
+        "group_analysis": {
             "type": "array",
             "description": "Per acceptance group completion status. A group is complete when ALL its required criteria are satisfied.",
             "items": {
@@ -45,7 +45,7 @@ _CRITIC_JSON_SCHEMA = {
             },
         },
     },
-    "required": ["summary", "root_cause", "next_actions", "blockers", "group_statuses"],
+    "required": ["summary", "root_cause", "next_actions", "blockers", "group_analysis"],
 }
 
 
@@ -101,25 +101,25 @@ Analyze the results:
                 model=self.model,
                 json_schema=_CRITIC_JSON_SCHEMA,
             )
-            # Convert array group_statuses to dict
-            gs = result.get("group_statuses", [])
+            # Convert array group_analysis to dict
+            gs = result.get("group_analysis", [])
             if isinstance(gs, list):
                 try:
-                    group_statuses = {
+                    group_analysis = {
                         item["group_id"]: item["completed"] for item in gs
                     }
                 except (KeyError, TypeError) as e:
-                    logger.warning("Malformed group_statuses from critic: %s", e)
+                    logger.warning("Malformed group_analysis from critic: %s", e)
                     return self._empty_result(str(e))
             else:
-                group_statuses = gs if isinstance(gs, dict) else {}
+                group_analysis = gs if isinstance(gs, dict) else {}
 
             return CriticResult(
                 summary=result.get("summary", ""),
                 root_cause=result.get("root_cause", ""),
                 next_actions=result.get("next_actions", []),
                 blockers=result.get("blockers", []),
-                group_statuses=group_statuses,
+                group_analysis=group_analysis,
             )
         except CLIResponseError as e:
             logger.error("Critic CLI call failed: %s", e)
@@ -133,5 +133,5 @@ Analyze the results:
             root_cause="",
             next_actions=["Retry verification."],
             blockers=[],
-            group_statuses={},
+            group_analysis={},
         )

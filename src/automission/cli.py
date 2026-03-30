@@ -901,9 +901,9 @@ def _render_criteria(
     if summary:
         click.echo(f"{indent}{summary}")
 
-    group_statuses = event_or_vr.get("group_statuses", {})
-    if group_statuses:
-        for gid, completed in group_statuses.items():
+    group_analysis = event_or_vr.get("group_analysis", {})
+    if group_analysis:
+        for gid, completed in group_analysis.items():
             symbol = (
                 click.style("\u2713", fg="green")
                 if completed
@@ -939,7 +939,7 @@ def _render_attempt_log(
         try:
             prev_vr = VerificationResult.from_json(prev_attempt["verification_result"])
             failed_groups = [
-                gid for gid, done in prev_vr.group_statuses.items() if not done
+                gid for gid, done in prev_vr.group_analysis.items() if not done
             ][:3]
             if failed_groups:
                 header += f" \u2014 focus: {', '.join(failed_groups)}"
@@ -961,7 +961,7 @@ def _render_attempt_log(
             vr = VerificationResult.from_json(attempt["verification_result"])
             criteria_data = {
                 "summary": vr.critic.summary,
-                "group_statuses": vr.group_statuses,
+                "group_analysis": vr.group_analysis,
                 "next_actions": vr.critic.next_actions,
             }
             _render_criteria(criteria_data, verbose=verbose)
@@ -1101,7 +1101,7 @@ def _print_mission(mission: dict, ws: Path, ledger: Ledger) -> None:
         if last_attempt and last_attempt.get("verification_result"):
             try:
                 vr = VerificationResult.from_json(last_attempt["verification_result"])
-                for gid, done in vr.group_statuses.items():
+                for gid, done in vr.group_analysis.items():
                     # Find group name by id
                     for g in groups:
                         if g.id == gid:

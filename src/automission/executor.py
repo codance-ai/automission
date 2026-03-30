@@ -244,8 +244,23 @@ def _run_single_agent_frontier(
                     ledger.is_group_completed(g.id) for g in groups
                 )
                 if all_done:
-                    ledger.update_mission_status(mission_id, MissionOutcome.COMPLETED)
-                    return MissionOutcome.COMPLETED
+                    # Final deterministic gate: run full verification before completing
+                    verify_sh = ws / "verify.sh"
+                    harness_result = harness.run(
+                        ws, verify_sh if verify_sh.exists() else None
+                    )
+                    if harness_result.passed:
+                        ledger.update_mission_status(
+                            mission_id, MissionOutcome.COMPLETED
+                        )
+                        return MissionOutcome.COMPLETED
+                    # Advisory was wrong — not actually complete
+                    logger.warning(
+                        "All groups marked complete by advisory, "
+                        "but verify.sh failed — mission failed"
+                    )
+                    ledger.update_mission_status(mission_id, MissionOutcome.FAILED)
+                    return MissionOutcome.FAILED
                 # Blocked (shouldn't happen in valid DAG)
                 ledger.update_mission_status(mission_id, MissionOutcome.FAILED)
                 return MissionOutcome.FAILED
@@ -297,6 +312,9 @@ def _run_single_agent_frontier(
             )
 
             if outcome == MissionOutcome.COMPLETED:
+                # Target group done — AUTHORITATIVE write to DB
+                ledger.update_group_status(current_group.id, completed=True)
+
                 event_writer.emit(
                     "group_completed",
                     {"group_id": current_group.id, "group_name": current_group.name},
@@ -307,8 +325,23 @@ def _run_single_agent_frontier(
                     ledger.is_group_completed(g.id) for g in groups
                 )
                 if all_done:
-                    ledger.update_mission_status(mission_id, MissionOutcome.COMPLETED)
-                    return MissionOutcome.COMPLETED
+                    # Final deterministic gate: run full verification before completing
+                    verify_sh = ws / "verify.sh"
+                    harness_result = harness.run(
+                        ws, verify_sh if verify_sh.exists() else None
+                    )
+                    if harness_result.passed:
+                        ledger.update_mission_status(
+                            mission_id, MissionOutcome.COMPLETED
+                        )
+                        return MissionOutcome.COMPLETED
+                    # Advisory was wrong — not actually complete
+                    logger.warning(
+                        "All groups marked complete by advisory, "
+                        "but verify.sh failed — mission failed"
+                    )
+                    ledger.update_mission_status(mission_id, MissionOutcome.FAILED)
+                    return MissionOutcome.FAILED
                 # Target group done, new frontier may have opened — loop
                 continue
 

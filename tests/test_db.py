@@ -147,7 +147,7 @@ class TestAttempts:
             token_output=3000,
             changed_files=["src/calc.py"],
             verification_passed=True,
-            verification_result='{"harness": {"passed": true, "exit_code": 0}, "critic": {"summary": "ok", "group_statuses": {}}}',
+            verification_result='{"harness": {"passed": true, "exit_code": 0}, "critic": {"summary": "ok", "group_analysis": {}}}',
             commit_hash="abc123",
         )
 
@@ -173,7 +173,7 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=False,
-            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_analysis": {}}}',
             commit_hash="def456",
         )
         ledger.record_attempt(
@@ -189,7 +189,7 @@ class TestAttempts:
             token_output=2500,
             changed_files=["calc.py"],
             verification_passed=True,
-            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_analysis": {}}}',
             commit_hash="ghi789",
         )
 
@@ -216,7 +216,7 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=True,
-            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_analysis": {}}}',
             commit_hash="abc",
         )
         mission = ledger.get_mission("m1")
@@ -239,7 +239,7 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=False,
-            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_analysis": {}}}',
             commit_hash="aaa",
         )
         # Attempt 2: passed
@@ -256,7 +256,7 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=True,
-            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_analysis": {}}}',
             commit_hash="bbb",
         )
         # Attempt 3: failed again
@@ -273,7 +273,7 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=False,
-            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_analysis": {}}}',
             commit_hash="ccc",
         )
         best = ledger.get_best_attempt("m1")
@@ -295,7 +295,7 @@ class TestAttempts:
             token_output=2000,
             changed_files=[],
             verification_passed=False,
-            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_statuses": {}}}',
+            verification_result='{"harness": {"passed": false, "exit_code": 1}, "critic": {"summary": "", "group_analysis": {}}}',
             commit_hash="aaa",
         )
         assert ledger.get_best_attempt("m1") is None
@@ -467,9 +467,9 @@ class TestMergeLock:
 
 class TestUpdateGroupStatusesBatch:
     def test_batch_update(self, ledger):
-        """update_group_statuses should batch all updates in one transaction."""
+        """update_group_analysis should batch all updates in one transaction."""
         _setup_mission_with_groups(ledger)
-        ledger.update_group_statuses({"g1": True, "g2": True})
+        ledger.update_group_analysis({"g1": True, "g2": True})
         row1 = ledger.conn.execute(
             "SELECT completed FROM acceptance_groups WHERE id = ?", ("g1",)
         ).fetchone()

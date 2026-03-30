@@ -1161,12 +1161,12 @@ class TestFmtChangedFilesFiltering:
 class TestRenderCriteria:
     """Tests for _render_criteria helper."""
 
-    def test_summary_and_group_statuses(self, capsys):
+    def test_summary_and_group_analysis(self, capsys):
         from automission.cli import _render_criteria
 
         event = {
             "summary": "Tests failing, 1/2 groups pass.",
-            "group_statuses": {"basic_arithmetic": True, "input_handling": False},
+            "group_analysis": {"basic_arithmetic": True, "input_handling": False},
             "next_actions": ["Fix input handling"],
         }
         _render_criteria(event)
@@ -1180,7 +1180,7 @@ class TestRenderCriteria:
 
         event = {
             "summary": "Division by zero not handled.",
-            "group_statuses": {"error_handling": False},
+            "group_analysis": {"error_handling": False},
             "next_actions": ["Handle division by zero case"],
         }
         _render_criteria(event, verbose=True)
@@ -1260,7 +1260,7 @@ class TestRenderEventRichOutput:
             "type": "verification",
             "passed": False,
             "summary": "Tests failing, input handling incomplete.",
-            "group_statuses": {"basic_arithmetic": True, "input_handling": False},
+            "group_analysis": {"basic_arithmetic": True, "input_handling": False},
             "next_actions": ["Fix subprocess call to use relative path"],
         }
         _render_event(event)
@@ -1277,7 +1277,7 @@ class TestRenderEventRichOutput:
             "type": "verification",
             "passed": True,
             "summary": "All tests pass.",
-            "group_statuses": {"testing": True},
+            "group_analysis": {"testing": True},
             "next_actions": [],
         }
         _render_event(event)
