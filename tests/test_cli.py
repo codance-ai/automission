@@ -52,8 +52,9 @@ def _mock_daemon_run(
     mock_ledger_instance.__exit__ = MagicMock(return_value=False)
     mock_collect = patch("automission.cli._collect_changed_files", return_value=[])
     mock_ledger_cls = patch("automission.cli.Ledger", return_value=mock_ledger_instance)
+    mock_docker = patch("automission.docker.ensure_docker")
 
-    return mock_ws, mock_spawn, mock_attach, mock_collect, mock_ledger_cls
+    return mock_ws, mock_spawn, mock_attach, mock_collect, mock_ledger_cls, mock_docker
 
 
 class TestRunCommand:
@@ -63,7 +64,7 @@ class TestRunCommand:
 
     def test_run_with_minimal_args(self, runner, fixture_dir):
         mocks = _mock_daemon_run()
-        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli,
                 [
@@ -80,7 +81,7 @@ class TestRunCommand:
 
     def test_run_with_minimal_args_daemon(self, runner, fixture_dir):
         mocks = _mock_daemon_run()
-        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli,
                 [
@@ -97,7 +98,7 @@ class TestRunCommand:
 
     def test_run_with_all_flags_daemon(self, runner, fixture_dir):
         mocks = _mock_daemon_run()
-        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli,
                 [
@@ -124,7 +125,7 @@ class TestRunCommand:
 
     def test_run_with_all_flags(self, runner, fixture_dir):
         mocks = _mock_daemon_run()
-        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli,
                 [
@@ -153,7 +154,7 @@ class TestRunCommand:
 class TestRunModelFlag:
     def test_run_passes_model_to_workspace(self, runner, fixture_dir):
         mocks = _mock_daemon_run()
-        with mocks[0] as mock_ws, mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0] as mock_ws, mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli,
                 [
@@ -180,13 +181,13 @@ class TestRunModelFlag:
             mocks[2],
             mocks[3],
             mocks[4],
+            mocks[5],
             patch(
                 "automission.cli.load_config",
                 return_value=__import__(
                     "automission.config", fromlist=["AutomissionConfig"]
                 ).AutomissionConfig(),
             ),
-            patch("automission.docker.ensure_docker"),
         ):
             result = runner.invoke(
                 cli,
@@ -210,7 +211,7 @@ class TestRunGoalFile:
         goal_file = tmp_path / "goal.txt"
         goal_file.write_text("Build a calculator")
         mocks = _mock_daemon_run()
-        with mocks[0] as mock_ws, mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0] as mock_ws, mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli,
                 [
@@ -248,7 +249,7 @@ class TestRunGoalFile:
 class TestRunJsonOutput:
     def test_json_flag_outputs_json(self, runner, acceptance_file):
         mocks = _mock_daemon_run(mission_id="test-001", status="completed")
-        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli,
                 [
@@ -269,7 +270,7 @@ class TestRunJsonOutput:
 class TestExitCodes:
     def test_success_exits_0(self, runner, acceptance_file):
         mocks = _mock_daemon_run(status="completed")
-        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli, ["run", "--goal", "test", "--acceptance", acceptance_file]
             )
@@ -277,7 +278,7 @@ class TestExitCodes:
 
     def test_failure_exits_1(self, runner, acceptance_file):
         mocks = _mock_daemon_run(status="failed")
-        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli, ["run", "--goal", "test", "--acceptance", acceptance_file]
             )
@@ -285,7 +286,7 @@ class TestExitCodes:
 
     def test_resource_limit_exits_5(self, runner, acceptance_file):
         mocks = _mock_daemon_run(status="resource_limit")
-        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli, ["run", "--goal", "test", "--acceptance", acceptance_file]
             )
@@ -293,7 +294,7 @@ class TestExitCodes:
 
     def test_cancelled_exits_2(self, runner, acceptance_file):
         mocks = _mock_daemon_run(status="cancelled")
-        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli, ["run", "--goal", "test", "--acceptance", acceptance_file]
             )
@@ -383,7 +384,7 @@ class TestMultiAgentCLI:
 class TestNewFlags:
     def test_yes_flag(self, runner, acceptance_file):
         mocks = _mock_daemon_run()
-        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli,
                 [
@@ -405,6 +406,7 @@ class TestNewFlags:
             mocks[2] as mock_attach,
             mocks[3],
             mocks[4],
+            mocks[5],
         ):
             result = runner.invoke(
                 cli,
@@ -617,7 +619,7 @@ class TestPlannerIntegration:
     def test_acceptance_flag_skips_planner(self, runner, fixture_dir):
         """When --acceptance is provided, Planner should not be called."""
         mocks = _mock_daemon_run()
-        with mocks[0] as mock_ws, mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0] as mock_ws, mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli,
                 [
@@ -636,7 +638,8 @@ class TestPlannerIntegration:
             call_kwargs = mock_ws.call_args[1]
             assert call_kwargs.get("acceptance_content") is None
 
-    def test_no_planner_without_acceptance_errors(self, runner):
+    @patch("automission.docker.ensure_docker")
+    def test_no_planner_without_acceptance_errors(self, _mock_docker, runner):
         """--no-planner without --acceptance should error."""
         result = runner.invoke(
             cli,
@@ -684,7 +687,7 @@ class TestPlannerIntegration:
         mock_planner_cls.return_value = mock_planner
 
         mocks = _mock_daemon_run()
-        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0], mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli,
                 [
@@ -727,7 +730,7 @@ class TestPlannerIntegration:
         mock_planner_cls.return_value = mock_planner
 
         mocks = _mock_daemon_run()
-        with mocks[0] as mock_ws, mocks[1], mocks[2], mocks[3], mocks[4]:
+        with mocks[0] as mock_ws, mocks[1], mocks[2], mocks[3], mocks[4], mocks[5]:
             result = runner.invoke(
                 cli,
                 [
@@ -742,8 +745,9 @@ class TestPlannerIntegration:
             assert call_kwargs.get("acceptance_content") is not None
             assert "basic" in call_kwargs["acceptance_content"]
 
+    @patch("automission.docker.ensure_docker")
     @patch("automission.planner.Planner")
-    def test_planner_user_declines(self, mock_planner_cls, runner):
+    def test_planner_user_declines(self, mock_planner_cls, _mock_docker, runner):
         """When user types 'n', exit 0 without running mission."""
         from automission.models import (
             PlanCriterion,
