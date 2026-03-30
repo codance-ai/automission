@@ -298,7 +298,7 @@ def _run_single_agent_frontier(
                 {"group_id": current_group.id, "group_name": current_group.name},
             )
 
-            outcome = run_loop(
+            loop_result = run_loop(
                 mission_id=mission_id,
                 workdir=ws,
                 backend=backend,
@@ -312,9 +312,23 @@ def _run_single_agent_frontier(
                 event_writer=event_writer,
             )
 
-            if outcome == MissionOutcome.COMPLETED:
+            if loop_result.outcome == MissionOutcome.COMPLETED:
                 # Target group done — AUTHORITATIVE write to DB
                 ledger.update_group_status(current_group.id, completed=True)
+
+                # Bulk-mark other groups the critic confirmed as complete.
+                # Only trusted when verify.sh (harness) also passed.
+                vr = loop_result.last_verification
+                if vr and vr.harness.passed:
+                    for gid, done in vr.group_analysis.items():
+                        if done and gid != current_group.id:
+                            if not ledger.is_group_completed(gid):
+                                ledger.update_group_status(gid, completed=True)
+                                logger.info(
+                                    "Bulk-marked group %s as completed "
+                                    "(critic confirmed, verify.sh passed)",
+                                    gid,
+                                )
 
                 event_writer.emit(
                     "group_completed",
@@ -346,10 +360,10 @@ def _run_single_agent_frontier(
                 # Target group done, new frontier may have opened — loop
                 continue
 
-            if outcome == MissionOutcome.CANCELLED:
+            if loop_result.outcome == MissionOutcome.CANCELLED:
                 return MissionOutcome.CANCELLED
 
-            if outcome == MissionOutcome.RESOURCE_LIMIT:
+            if loop_result.outcome == MissionOutcome.RESOURCE_LIMIT:
                 return MissionOutcome.RESOURCE_LIMIT
 
             # Stall/failure on this group — skip it and try next

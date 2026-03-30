@@ -84,6 +84,18 @@ class AttemptContract:
     next_actions: list[str] = field(default_factory=list)
 
 
+@dataclass
+class LoopResult:
+    """Return value from run_loop: outcome + optional last verification.
+
+    Carries the last VerificationResult so callers can inspect group_analysis
+    without race-prone ledger reads in multi-agent scenarios.
+    """
+
+    outcome: str  # MissionOutcome value
+    last_verification: "VerificationResult | None" = None
+
+
 class MissionOutcome:
     """Terminal mission states with associated exit codes."""
 

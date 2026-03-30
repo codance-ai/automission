@@ -133,6 +133,18 @@ def run_multi_agent(
         )
 
         if all_completed:
+            # Final deterministic gate: verify.sh must pass before declaring success.
+            # Group completion is based on critic advisory; verify.sh is ground truth.
+            verify_sh = mission_dir / "verify.sh"
+            if verify_sh.exists():
+                gate = run_verify_sh(mission_dir, verify_sh)
+                if not gate["passed"]:
+                    logger.warning(
+                        "All groups marked complete by advisory, "
+                        "but verify.sh failed — mission failed"
+                    )
+                    ledger.update_mission_status(mission_id, MissionOutcome.FAILED)
+                    return MissionOutcome.FAILED
             ledger.update_mission_status(mission_id, MissionOutcome.COMPLETED)
             return MissionOutcome.COMPLETED
 
@@ -208,7 +220,36 @@ def _agent_worker(
             # Get frontier groups
             frontier = ledger.get_frontier_groups(mission_id)
             if not frontier:
-                logger.info("%s: no frontier groups available, exiting", agent_id)
+                # Distinguish: all done vs waiting for deps vs deadlock
+                groups = ledger.get_acceptance_groups(mission_id)
+                all_done = bool(groups) and all(
+                    ledger.is_group_completed(g.id) for g in groups
+                )
+                if all_done:
+                    logger.info("%s: all groups completed, exiting", agent_id)
+                    break
+
+                if ledger.has_active_claims(mission_id):
+                    # Other agents are working; deps may unlock soon
+                    age_s = ledger.get_mission_age_s(mission_id)
+                    if age_s is not None and age_s >= timeout:
+                        logger.info(
+                            "%s: mission timeout while waiting for frontier",
+                            agent_id,
+                        )
+                        break
+                    logger.debug(
+                        "%s: no frontier, waiting for active claims to finish",
+                        agent_id,
+                    )
+                    time.sleep(2)
+                    continue
+
+                # No frontier, no active claims, incomplete groups → deadlock
+                logger.warning(
+                    "%s: no frontier and no active claims — possible dependency deadlock",
+                    agent_id,
+                )
                 break
 
             # Try to claim a group
@@ -266,7 +307,7 @@ def _agent_worker(
                 all_groups = ledger.get_acceptance_groups(mission_id)
                 claimed_group = [g for g in all_groups if g.id == group_id]
 
-                loop_outcome = run_loop(
+                loop_result = run_loop(
                     mission_id=mission_id,
                     workdir=worktree_dir,
                     backend=backend,
@@ -285,7 +326,7 @@ def _agent_worker(
                 logger.info(
                     "%s: run_loop returned %s for group %s",
                     agent_id,
-                    loop_outcome,
+                    loop_result.outcome,
                     group_id,
                 )
 
@@ -319,6 +360,21 @@ def _agent_worker(
                             merge_result.commit_hash,
                         )
 
+                        # Bulk-mark other groups the critic confirmed as complete.
+                        # Only trusted when verify.sh (harness) also passed.
+                        vr = loop_result.last_verification
+                        if vr and vr.harness.passed:
+                            for gid, done in vr.group_analysis.items():
+                                if done and gid != group_id:
+                                    if not ledger.is_group_completed(gid):
+                                        ledger.update_group_status(gid, completed=True)
+                                        logger.info(
+                                            "%s: bulk-marked group %s as completed "
+                                            "(critic confirmed, verify.sh passed)",
+                                            agent_id,
+                                            gid,
+                                        )
+
                         # Check if all groups are now completed
                         groups = ledger.get_acceptance_groups(mission_id)
                         all_done = bool(groups) and all(
@@ -351,9 +407,9 @@ def _agent_worker(
                     )
 
                 # If loop hit cancellation or resource limit, propagate
-                if loop_outcome == MissionOutcome.CANCELLED:
+                if loop_result.outcome == MissionOutcome.CANCELLED:
                     break
-                if loop_outcome == MissionOutcome.RESOURCE_LIMIT:
+                if loop_result.outcome == MissionOutcome.RESOURCE_LIMIT:
                     break
 
             finally:

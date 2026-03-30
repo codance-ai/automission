@@ -349,6 +349,14 @@ class Ledger:
         )
         self.conn.commit()
 
+    def has_active_claims(self, mission_id: str) -> bool:
+        """Return True if any active claim exists for the given mission."""
+        row = self.conn.execute(
+            "SELECT 1 FROM claims WHERE mission_id = ? AND status = 'active' LIMIT 1",
+            (mission_id,),
+        ).fetchone()
+        return row is not None
+
     # ── Frontier ──
 
     def get_frontier_groups(self, mission_id: str) -> list[dict]:

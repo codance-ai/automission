@@ -10,7 +10,7 @@ from automission.critic import Critic
 from automission.db import Ledger
 from automission.harness import Harness
 from automission.loop import run_single_iteration, run_loop
-from automission.models import VerificationResult
+from automission.models import LoopResult, VerificationResult
 from conftest import MockCriticBackend
 from automission.workspace import create_mission
 
@@ -175,7 +175,7 @@ class TestRunLoop:
         )
         harness = Harness()
         critic = Critic(backend=MockCriticBackend())
-        outcome = run_loop(
+        result = run_loop(
             mission_id="loop-001",
             workdir=ws,
             backend=backend,
@@ -185,7 +185,8 @@ class TestRunLoop:
             max_cost=10.0,
             timeout=3600,
         )
-        assert outcome == "completed"
+        assert isinstance(result, LoopResult)
+        assert result.outcome == "completed"
         ledger = Ledger(ws / "mission.db")
         assert ledger.get_mission("loop-001")["status"] == "completed"
         assert ledger.get_mission("loop-001")["total_attempts"] == 2
@@ -206,7 +207,7 @@ class TestRunLoop:
         )
         harness = Harness()
         critic = Critic(backend=MockCriticBackend())
-        outcome = run_loop(
+        result = run_loop(
             mission_id="loop-iter",
             workdir=ws,
             backend=backend,
@@ -216,7 +217,7 @@ class TestRunLoop:
             max_cost=100.0,
             timeout=3600,
         )
-        assert outcome == "resource_limit"
+        assert result.outcome == "resource_limit"
         ledger = Ledger(ws / "mission.db")
         assert ledger.get_mission("loop-iter")["total_attempts"] == 3
         ledger.close()
@@ -237,7 +238,7 @@ class TestRunLoop:
         )
         harness = Harness()
         critic = Critic(backend=MockCriticBackend())
-        outcome = run_loop(
+        result = run_loop(
             mission_id="loop-cost",
             workdir=ws,
             backend=backend,
@@ -247,7 +248,7 @@ class TestRunLoop:
             max_cost=3.0,
             timeout=3600,
         )
-        assert outcome == "resource_limit"
+        assert result.outcome == "resource_limit"
         ledger = Ledger(ws / "mission.db")
         assert ledger.get_mission("loop-cost")["total_attempts"] <= 2
         ledger.close()
@@ -307,7 +308,7 @@ class TestRunLoop:
             call_count += 1
             return call_count > 1
 
-        outcome = run_loop(
+        result = run_loop(
             mission_id="loop-cancel",
             workdir=ws,
             backend=backend,
@@ -318,7 +319,7 @@ class TestRunLoop:
             timeout=3600,
             cancel_flag=cancel_after_one,
         )
-        assert outcome == "cancelled"
+        assert result.outcome == "cancelled"
         ledger = Ledger(ws / "mission.db")
         assert ledger.get_mission("loop-cancel")["total_attempts"] == 1
         ledger.close()
@@ -349,7 +350,7 @@ class TestRunLoop:
             call_count += 1
             return call_count > 1
 
-        outcome = run_loop(
+        result = run_loop(
             mission_id="loop-resume",
             workdir=ws,
             backend=backend,
@@ -360,13 +361,13 @@ class TestRunLoop:
             timeout=3600,
             cancel_flag=cancel_after_one,
         )
-        assert outcome == "cancelled"
+        assert result.outcome == "cancelled"
         # Resume — reset backend counter, update mission status back to running
         backend._attempt_count = 1
         ledger = Ledger(ws / "mission.db")
         ledger.update_mission_status("loop-resume", "running")
         ledger.close()
-        outcome2 = run_loop(
+        result2 = run_loop(
             mission_id="loop-resume",
             workdir=ws,
             backend=backend,
@@ -376,7 +377,7 @@ class TestRunLoop:
             max_cost=100.0,
             timeout=3600,
         )
-        assert outcome2 == "completed"
+        assert result2.outcome == "completed"
         ledger = Ledger(ws / "mission.db")
         assert ledger.get_mission("loop-resume")["total_attempts"] == 2
         ledger.close()
@@ -397,7 +398,7 @@ class TestRunLoop:
         )
         harness = Harness()
         critic = Critic(backend=MockCriticBackend())
-        outcome = run_loop(
+        result = run_loop(
             mission_id="loop-stall",
             workdir=ws,
             backend=backend,
@@ -409,7 +410,7 @@ class TestRunLoop:
             stall_threshold=3,
         )
         # Should stop due to stall (failed) before hitting max_iterations
-        assert outcome in ("failed", "resource_limit")
+        assert result.outcome in ("failed", "resource_limit")
 
     def test_loop_with_separate_mission_dir(self, tmp_path, fixture_dir):
         """run_loop works when mission_dir is explicitly provided."""
@@ -425,7 +426,7 @@ class TestRunLoop:
         )
         harness = Harness()
         critic = Critic(backend=MockCriticBackend())
-        outcome = run_loop(
+        result = run_loop(
             mission_id="loop-sep",
             workdir=ws,
             backend=backend,
@@ -436,7 +437,7 @@ class TestRunLoop:
             timeout=3600,
             mission_dir=ws,
         )
-        assert outcome in ("completed", "failed", "resource_limit")
+        assert result.outcome in ("completed", "failed", "resource_limit")
 
     def test_dirty_state_included_in_prompt(self, tmp_path, fixture_dir):
         backend = MockBackend(simulate_files={"src/calc.py": CALC_PY})
