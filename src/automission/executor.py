@@ -22,6 +22,7 @@ from typing import Callable
 from automission import DEFAULT_DOCKER_IMAGE
 from automission.db import Ledger
 from automission.events import EventWriter
+from automission.mission_log import MissionLogger
 from automission.models import MissionOutcome
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,7 @@ def _execute_mission(
     mission_id: str,
     event_writer: EventWriter,
     cancel_flag: Callable[[], bool],
+    mission_logger: "MissionLogger | None" = None,
 ) -> str:
     """Run the actual mission work (single-agent or multi-agent).
 
@@ -181,6 +183,7 @@ def _execute_mission(
             timeout=timeout,
             cancel_flag=_combined_cancel,
             event_writer=event_writer,
+            mission_logger=mission_logger,
         )
     else:
         outcome = _run_single_agent_frontier(
@@ -194,6 +197,7 @@ def _execute_mission(
             timeout=timeout,
             cancel_flag=_combined_cancel,
             event_writer=event_writer,
+            mission_logger=mission_logger,
         )
 
     return outcome
@@ -210,6 +214,7 @@ def _run_single_agent_frontier(
     timeout: int,
     cancel_flag: Callable[[], bool],
     event_writer: EventWriter,
+    mission_logger: "MissionLogger | None" = None,
 ) -> str:
     """Single-agent frontier loop: work on frontier groups one at a time.
 
@@ -310,6 +315,7 @@ def _run_single_agent_frontier(
                 cancel_flag=cancel_flag,
                 target_groups=[current_group],
                 event_writer=event_writer,
+                mission_logger=mission_logger,
             )
 
             if loop_result.outcome == MissionOutcome.COMPLETED:
@@ -405,11 +411,29 @@ def run_executor(workspace_dir: Path, mission_id: str) -> None:
     heartbeat_stop = threading.Event()
     heartbeat_thread = None
 
-    with EventWriter(events_file) as event_writer:
+    mission_log_path = workspace_dir / "mission.log"
+    with (
+        EventWriter(events_file) as event_writer,
+        MissionLogger(mission_log_path) as mission_logger,
+    ):
         try:
             # Register in DB
             with Ledger(workspace_dir / "mission.db") as ledger:
                 ledger.register_executor(mission_id, executor_id, os.getpid())
+                mission = ledger.get_mission(mission_id)
+
+            # Write mission log header
+            if mission:
+                mission_logger.header(
+                    mission_id=mission_id,
+                    backend=mission.get("backend", "claude"),
+                    model=mission.get("model", "claude-sonnet-4-6"),
+                    docker_image=mission.get("docker_image", DEFAULT_DOCKER_IMAGE),
+                    agents=mission.get("agents", 1),
+                    max_attempts=mission.get("max_iterations", 20),
+                    max_cost=mission.get("max_cost", 10.0),
+                    timeout=mission.get("timeout", 3600),
+                )
 
             # Start heartbeat thread
             heartbeat_thread = threading.Thread(
@@ -432,7 +456,25 @@ def run_executor(workspace_dir: Path, mission_id: str) -> None:
                 mission_id,
                 event_writer,
                 cancel_event.is_set,
+                mission_logger=mission_logger,
             )
+
+            # Write mission log footer
+            with Ledger(workspace_dir / "mission.db") as ledger:
+                final_mission = ledger.get_mission(mission_id)
+                groups = ledger.get_acceptance_groups(mission_id)
+                group_statuses = {
+                    g.name: ledger.is_group_completed(g.id) for g in groups
+                }
+                age_s = ledger.get_mission_age_s(mission_id) or 0.0
+            if final_mission:
+                mission_logger.footer(
+                    outcome=outcome,
+                    total_attempts=final_mission["total_attempts"],
+                    total_cost=final_mission["total_cost"],
+                    total_duration_s=age_s,
+                    group_statuses=group_statuses,
+                )
 
             # Emit terminal event based on outcome
             if outcome == MissionOutcome.COMPLETED:
