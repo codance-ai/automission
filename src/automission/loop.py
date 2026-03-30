@@ -343,7 +343,7 @@ def _run_one_iteration(
     commit_hash = _git_commit_if_changed(workdir, attempt_number)
 
     if mission_logger:
-        stdout_size = 0
+        stdout_size = None
         if attempt_result.stdout_path and attempt_result.stdout_path.exists():
             stdout_size = attempt_result.stdout_path.stat().st_size
         mission_logger.attempt_execution(
@@ -426,7 +426,7 @@ def _run_one_iteration(
             stdout=harness_result.stdout,
             stderr=harness_result.stderr,
             critic_duration_s=t_critic_end - t_critic_start,
-            critic_cost_usd=0.0,
+            critic_cost_usd=None,
             summary=critic_result.summary,
             root_cause=critic_result.root_cause,
             next_actions=critic_result.next_actions,

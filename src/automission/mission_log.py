@@ -106,7 +106,7 @@ class MissionLogger:
         groups_str = _format_group_statuses(group_statuses)
         self._write(
             f"\n{line}\n"
-            f"  MISSION {outcome}\n"
+            f"  MISSION {outcome.upper()}\n"
             f"  Attempts: {total_attempts}"
             f" | Cost: ${total_cost:.3f}"
             f" | Duration: {total_duration_s}s\n"
@@ -134,22 +134,16 @@ class MissionLogger:
 
     # ── Orchestrator ─────────────────────────────────────────────────────
 
-    def orchestrator_round(
+    def orchestrator_claim(
         self,
-        round_number: int,
+        agent_id: str,
+        group_id: str,
         frontier: list[str],
-        assignments: dict[str, str],
     ) -> None:
-        section = f"==== ORCHESTRATOR ROUND {round_number} " + "=" * (
-            80 - len(f"==== ORCHESTRATOR ROUND {round_number} ")
+        """Log an agent claiming a group from the frontier."""
+        self._write(
+            f"  {agent_id} claimed [{group_id}] (frontier: {', '.join(frontier)})\n"
         )
-        lines = [f"\n{section}\n"]
-        lines.append(f"Frontier: {', '.join(frontier)}\n")
-        lines.append("Assignments:\n")
-        for agent_id, group in assignments.items():
-            lines.append(f"  {agent_id} -> {group}\n")
-        lines.append("\n")
-        self._write("".join(lines))
 
     def merge_result(
         self,
@@ -182,7 +176,7 @@ class MissionLogger:
             80 - len(f"==== ATTEMPT {attempt_number} ")
         )
         ts = _now_utc()
-        self._write(f"\n{section}\nScope: {scope}\n{ts}\n\n")
+        self._write(f"\n{section}\nAgent: {agent_id} | Scope: {scope}\n{ts}\n\n")
 
     def attempt_prompt(self, prompt: str, prompt_len: int) -> None:
         label = f"---- prompt ({prompt_len:,} chars) "

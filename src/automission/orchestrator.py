@@ -292,10 +292,10 @@ def _agent_worker(
                 continue
 
             if mission_logger:
-                mission_logger.orchestrator_round(
-                    round_number=0,  # Not tracked currently
+                mission_logger.orchestrator_claim(
+                    agent_id=agent_id,
+                    group_id=group_id,
                     frontier=[g["id"] for g in frontier],
-                    assignments={agent_id: group_id},
                 )
 
             # Sync workspace from main

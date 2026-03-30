@@ -107,6 +107,7 @@ class TestMissionLoggerAttempt:
 
         text = path.read_text()
         assert "ATTEMPT 1" in text
+        assert "Agent: agent-1" in text
         assert "Scope: all groups (first attempt)" in text
         assert "UTC" in text
 
@@ -297,21 +298,19 @@ class TestMissionLoggerFooter:
         assert "api x" in text
 
 
-class TestMissionLoggerOrchestratorRound:
-    def test_orchestrator_round(self, tmp_path):
+class TestMissionLoggerOrchestratorClaim:
+    def test_orchestrator_claim(self, tmp_path):
         path = tmp_path / "mission.log"
         with MissionLogger(path) as log:
-            log.orchestrator_round(
-                round_number=1,
+            log.orchestrator_claim(
+                agent_id="agent-1",
+                group_id="auth",
                 frontier=["auth", "api"],
-                assignments={"agent-1": "auth", "agent-2": "api"},
             )
 
         text = path.read_text()
-        assert "ORCHESTRATOR ROUND 1" in text
-        assert "Frontier: auth, api" in text
-        assert "agent-1" in text
-        assert "agent-2" in text
+        assert "agent-1 claimed [auth]" in text
+        assert "frontier: auth, api" in text
 
 
 class TestMissionLoggerMergeResult:
