@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from automission import DEFAULT_DOCKER_IMAGE
 from automission.docker import CONTAINER_HOME
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,7 @@ model = "{vm}"
 auth = "api_key"
 
 [docker]
-image = "ghcr.io/codance-ai/automission:latest"
+image = "{DEFAULT_DOCKER_IMAGE}"
 """
 
 

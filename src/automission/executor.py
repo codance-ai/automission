@@ -19,6 +19,7 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
+from automission import DEFAULT_DOCKER_IMAGE
 from automission.db import Ledger
 from automission.events import EventWriter
 from automission.models import MissionOutcome
@@ -120,7 +121,7 @@ def _execute_mission(
     verifier_backend_name = mission.get("verifier_backend", "claude")
     verifier_model = mission.get("verifier_model", "claude-sonnet-4-6")
     verifier_auth = mission.get("verifier_auth", "api_key")
-    docker_image = mission.get("docker_image", "ghcr.io/codance-ai/automission:latest")
+    docker_image = mission.get("docker_image", DEFAULT_DOCKER_IMAGE)
     agents = mission.get("agents", 1)
     max_iterations = mission.get("max_iterations", 20)
     max_cost = mission.get("max_cost", 10.0)

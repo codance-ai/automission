@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from automission import DEFAULT_DOCKER_IMAGE
 from automission.db import Ledger
 from automission.loop import run_loop
 from automission.orchestrator import run_multi_agent
@@ -45,7 +46,7 @@ def _docker_available() -> bool:
 
 
 DOCKER_OK = _docker_available()
-DOCKER_IMAGE = "ghcr.io/codance-ai/automission:latest"
+DOCKER_IMAGE = DEFAULT_DOCKER_IMAGE
 
 # Auth detection: API key only (OAuth needs browser, unusable in Docker/CI)
 # Note: Codex CLI reads CODEX_API_KEY, not OPENAI_API_KEY (see #46).

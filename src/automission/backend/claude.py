@@ -6,6 +6,7 @@ import json
 import logging
 from pathlib import Path
 
+from automission import DEFAULT_DOCKER_IMAGE
 from automission.models import AttemptResult, AttemptSpec, StableContext, TokenUsage
 from automission.backend.protocol import format_automission_md
 from automission.backend._helpers import write_instruction_pointer, run_docker_attempt
@@ -20,7 +21,7 @@ class ClaudeCodeBackend:
 
     def __init__(
         self,
-        docker_image: str = "ghcr.io/codance-ai/automission:latest",
+        docker_image: str = DEFAULT_DOCKER_IMAGE,
         auth_method: str = "api_key",
         model: str | None = None,
     ):

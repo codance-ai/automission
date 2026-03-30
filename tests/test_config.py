@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
+from automission import DEFAULT_DOCKER_IMAGE
 from automission.config import (
     AutomissionConfig,
     _KEY_MAP,
@@ -201,7 +202,7 @@ class TestGenerateDefaultConfig:
         assert data["defaults"]["max_cost"] == 10.0
         assert data["defaults"]["timeout"] == 3600
         assert data["defaults"]["auth"] == "api_key"
-        assert data["docker"]["image"] == "ghcr.io/codance-ai/automission:latest"
+        assert data["docker"]["image"] == DEFAULT_DOCKER_IMAGE
         assert data["planner"]["backend"] == "claude"
         assert data["planner"]["auth"] == "api_key"
         assert data["verifier"]["backend"] == "claude"
