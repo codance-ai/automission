@@ -143,7 +143,7 @@ class TestSingleAgentCalculator:
 
         harness = Harness()
         critic = Critic(backend=MockCriticBackend())
-        outcome = run_loop(
+        loop_result = run_loop(
             mission_id=f"real-calc-{backend_name}",
             workdir=ws,
             backend=backend,
@@ -159,13 +159,13 @@ class TestSingleAgentCalculator:
         ledger.close()
 
         print(
-            f"\n[{backend_name}] outcome={outcome}, "
+            f"\n[{backend_name}] outcome={loop_result.outcome}, "
             f"attempts={mission['total_attempts']}, "
             f"cost=${mission['total_cost']:.2f}"
         )
 
-        assert outcome == "completed", (
-            f"{backend_name} did not complete: {outcome} "
+        assert loop_result.outcome == "completed", (
+            f"{backend_name} did not complete: {loop_result.outcome} "
             f"after {mission['total_attempts']} attempts"
         )
 
@@ -213,7 +213,7 @@ class TestPlannerFlow:
         # Step 3: Run agent loop
         harness = Harness()
         critic = Critic(backend=MockCriticBackend())
-        outcome = run_loop(
+        loop_result = run_loop(
             mission_id=f"real-planner-{backend_name}",
             workdir=ws,
             backend=backend,
@@ -229,13 +229,13 @@ class TestPlannerFlow:
         ledger.close()
 
         print(
-            f"[{backend_name}] outcome={outcome}, "
+            f"[{backend_name}] outcome={loop_result.outcome}, "
             f"attempts={mission['total_attempts']}, "
             f"cost=${mission['total_cost']:.2f}"
         )
 
-        assert outcome == "completed", (
-            f"{backend_name} planner flow did not complete: {outcome} "
+        assert loop_result.outcome == "completed", (
+            f"{backend_name} planner flow did not complete: {loop_result.outcome} "
             f"after {mission['total_attempts']} attempts"
         )
 
@@ -316,7 +316,7 @@ class TestCircuitBreaker:
 
         harness = Harness()
         critic = Critic(backend=MockCriticBackend())
-        outcome = run_loop(
+        loop_result = run_loop(
             mission_id=f"real-breaker-{backend_name}",
             workdir=ws,
             backend=backend,
@@ -332,14 +332,14 @@ class TestCircuitBreaker:
         ledger.close()
 
         print(
-            f"\n[{backend_name}] circuit breaker outcome={outcome}, "
+            f"\n[{backend_name}] circuit breaker outcome={loop_result.outcome}, "
             f"attempts={mission['total_attempts']}, "
             f"cost=${mission['total_cost']:.2f}"
         )
 
         # Either completed in 1 attempt (lucky) or hit resource_limit
-        assert outcome in ("completed", "resource_limit"), (
-            f"{backend_name} unexpected outcome: {outcome}"
+        assert loop_result.outcome in ("completed", "resource_limit"), (
+            f"{backend_name} unexpected outcome: {loop_result.outcome}"
         )
         assert mission["total_attempts"] <= 1
 
@@ -373,7 +373,7 @@ class TestIterationWithFeedback:
 
         harness = Harness()
         critic = Critic(backend=MockCriticBackend())
-        outcome = run_loop(
+        loop_result = run_loop(
             mission_id=f"real-iter-{backend_name}",
             workdir=ws,
             backend=backend,
@@ -390,7 +390,7 @@ class TestIterationWithFeedback:
         ledger.close()
 
         print(
-            f"\n[{backend_name}] iteration outcome={outcome}, "
+            f"\n[{backend_name}] iteration outcome={loop_result.outcome}, "
             f"attempts={mission['total_attempts']}, "
             f"cost=${mission['total_cost']:.2f}"
         )
@@ -403,4 +403,4 @@ class TestIterationWithFeedback:
                 f"cost=${a.get('cost_usd', 0):.2f}"
             )
 
-        assert outcome == "completed"
+        assert loop_result.outcome == "completed"

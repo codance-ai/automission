@@ -16,6 +16,7 @@ from automission.models import (
     AcceptanceGroup,
     AttemptContract,
     AttemptSpec,
+    LoopResult,
     MissionOutcome,
     VerificationResult,
 )
@@ -87,15 +88,15 @@ def run_loop(
     mission_dir: Path | None = None,
     target_groups: list[AcceptanceGroup] | None = None,
     event_writer: "EventWriter | None" = None,
-) -> str:
+) -> LoopResult:
     """Main agent loop with circuit breakers, stall detection, and resume.
 
     If target_groups is provided, the agent focuses on those groups only
     (used by orchestrator for claimed groups). The critic still evaluates
     all groups to compute group_analysis.
 
-    Returns a MissionOutcome string value: "completed", "failed",
-    "cancelled", or "resource_limit".
+    Returns a LoopResult containing the MissionOutcome string and
+    the last VerificationResult (for bulk group-completion marking).
     """
     mission_dir = mission_dir or workdir
 
@@ -111,7 +112,7 @@ def run_loop(
             mission = ledger.get_mission(mission_id)
             if mission is None:
                 logger.error("Mission %s not found", mission_id)
-                return MissionOutcome.FAILED
+                return LoopResult(MissionOutcome.FAILED)
 
             # ── Circuit breakers ──
 
@@ -119,7 +120,7 @@ def run_loop(
             if cancel_flag():
                 ledger.update_mission_status(mission_id, MissionOutcome.CANCELLED)
                 logger.info("Mission %s cancelled by flag", mission_id)
-                return MissionOutcome.CANCELLED
+                return LoopResult(MissionOutcome.CANCELLED, last_verification)
 
             # Max iterations
             if mission["total_attempts"] >= max_iterations:
@@ -129,7 +130,7 @@ def run_loop(
                     mission_id,
                     max_iterations,
                 )
-                return MissionOutcome.RESOURCE_LIMIT
+                return LoopResult(MissionOutcome.RESOURCE_LIMIT, last_verification)
 
             # Max cost
             if mission["total_cost"] >= max_cost:
@@ -139,14 +140,14 @@ def run_loop(
                     mission_id,
                     max_cost,
                 )
-                return MissionOutcome.RESOURCE_LIMIT
+                return LoopResult(MissionOutcome.RESOURCE_LIMIT, last_verification)
 
             # Timeout
             age_s = ledger.get_mission_age_s(mission_id)
             if age_s is not None and age_s >= timeout:
                 ledger.update_mission_status(mission_id, MissionOutcome.RESOURCE_LIMIT)
                 logger.info("Mission %s timed out", mission_id)
-                return MissionOutcome.RESOURCE_LIMIT
+                return LoopResult(MissionOutcome.RESOURCE_LIMIT, last_verification)
 
             # ── Stall detection (pre-iteration) ──
             stall_hint = False
@@ -161,7 +162,7 @@ def run_loop(
                     stall_count,
                     stall_threshold * 2,
                 )
-                return MissionOutcome.FAILED
+                return LoopResult(MissionOutcome.FAILED, last_verification)
 
             if stall_count >= stall_threshold + 1:
                 # Rollback to best commit
@@ -212,11 +213,11 @@ def run_loop(
                         "Target groups %s all completed",
                         target_ids,
                     )
-                    return MissionOutcome.COMPLETED
+                    return LoopResult(MissionOutcome.COMPLETED, verification)
             elif verification.mission_passed:
                 ledger.update_mission_status(mission_id, MissionOutcome.COMPLETED)
                 logger.info("Mission %s completed!", mission_id)
-                return MissionOutcome.COMPLETED
+                return LoopResult(MissionOutcome.COMPLETED, verification)
 
             # Carry verification forward for next iteration
             last_verification = verification

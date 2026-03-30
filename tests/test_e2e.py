@@ -245,7 +245,7 @@ class TestE2EMultiIteration:
         harness = Harness()
         critic = Critic(backend=MockCriticBackend())
 
-        outcome = run_loop(
+        result = run_loop(
             mission_id="e2e-loop",
             workdir=ws,
             backend=backend,
@@ -256,7 +256,7 @@ class TestE2EMultiIteration:
             timeout=3600,
         )
 
-        assert outcome == "completed"
+        assert result.outcome == "completed"
 
         ledger = Ledger(ws / "mission.db")
         mission = ledger.get_mission("e2e-loop")
@@ -321,7 +321,7 @@ class TestE2EMultiIteration:
         harness = Harness()
         critic = Critic(backend=MockCriticBackend())
 
-        outcome = run_loop(
+        result = run_loop(
             mission_id="e2e-breaker",
             workdir=ws,
             backend=backend,
@@ -332,7 +332,7 @@ class TestE2EMultiIteration:
             timeout=3600,
         )
 
-        assert outcome == "resource_limit"
+        assert result.outcome == "resource_limit"
         ledger = Ledger(ws / "mission.db")
         assert ledger.get_mission("e2e-breaker")["total_attempts"] == 2
         ledger.close()
