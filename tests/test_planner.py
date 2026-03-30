@@ -199,11 +199,6 @@ VALID_PLAN_INPUT = {
             ],
         },
     ],
-    "verification_surface": {
-        "runner": "pytest",
-        "targets": ["tests/"],
-        "options": "-v",
-    },
     "assumptions": ["Python"],
 }
 
@@ -227,6 +222,7 @@ class TestPlanner:
         assert len(draft.groups) == 2
         assert draft.groups[0].id == "auth_schema"
         assert draft.groups[1].depends_on == ["auth_schema"]
+        # Now uses default Option B runner
         assert draft.verification_surface.runner == "pytest"
 
     def test_plan_passes_model_to_backend(self):

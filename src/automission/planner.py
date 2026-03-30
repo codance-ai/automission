@@ -101,7 +101,6 @@ _PLAN_TOOL = {
             "mission_summary",
             "constraints",
             "groups",
-            "verification_surface",
         ],
         "properties": {
             "mission_summary": {
@@ -145,26 +144,6 @@ _PLAN_TOOL = {
                     },
                 },
             },
-            "verification_surface": {
-                "type": "object",
-                "description": "How to verify the mission. Describes the test runner and targets.",
-                "required": ["runner", "targets"],
-                "properties": {
-                    "runner": {
-                        "type": "string",
-                        "description": "Test runner command (e.g., 'pytest', 'jest', 'go test', 'bash')",
-                    },
-                    "targets": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Test targets (e.g., ['tests/'], ['test/'], ['./...'])",
-                    },
-                    "options": {
-                        "type": "string",
-                        "description": "Additional runner options (e.g., '-v --tb=short'). Empty string if none.",
-                    },
-                },
-            },
             "assumptions": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -188,7 +167,10 @@ unless the user explicitly stated them in the goal
 - Each group should have 2-5 criteria
 - group.id must be valid snake_case and must equal the snake_case form of group.name
 - Dependencies form a DAG (no cycles). Groups with no dependencies start immediately.
-- verification_surface describes how to run tests: runner (e.g., "pytest"), targets (e.g., ["tests/"]), and options (e.g., "-v --tb=short")
+- constraints are about the PROJECT DELIVERABLE, not about how you write this plan. \
+Do NOT repeat your own instructions or planning rules as constraints.
+  BAD: "Describe only observable behaviors and outcomes" (this is YOUR instruction, not a project constraint)
+  GOOD: "All API responses must be valid JSON" (this is a real deliverable constraint)
 
 Call the submit_plan tool with your structured plan."""
 
@@ -240,11 +222,11 @@ class Planner:
                     criteria=criteria,
                 )
             )
-        vs_raw = raw.get("verification_surface", {})
+        # Default verification surface (Option B) — Agent can update verify.sh later
         verification_surface = VerificationSurface(
-            runner=vs_raw.get("runner", "echo"),
-            targets=vs_raw.get("targets", ["'no tests configured'"]),
-            options=vs_raw.get("options", ""),
+            runner="pytest",
+            targets=["tests/"],
+            options="",
         )
         return PlanDraft(
             mission_summary=raw.get("mission_summary", ""),
