@@ -95,7 +95,9 @@ model = "{vm}"
 auth = "api_key"
 
 [docker]
-image = "{DEFAULT_DOCKER_IMAGE}"
+# Default image matches CLI version ({DEFAULT_DOCKER_IMAGE}).
+# Uncomment to override, e.g. for local builds:
+# image = "automission:local"
 """
 
 
