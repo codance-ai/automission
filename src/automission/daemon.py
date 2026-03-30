@@ -21,7 +21,7 @@ def spawn_executor(
     log_file: Path | None = None,
 ) -> int:
     if log_file is None:
-        log_file = workspace_dir / "mission.log"
+        log_file = workspace_dir / "executor.log"
 
     log_fh = open(log_file, "a")
     try:
