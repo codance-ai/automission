@@ -36,6 +36,7 @@ def spawn_executor(
             stdout=log_fh,
             stderr=log_fh,
             start_new_session=True,
+            cwd=str(workspace_dir),
         )
     finally:
         log_fh.close()  # Parent closes its copy; child keeps inherited fd

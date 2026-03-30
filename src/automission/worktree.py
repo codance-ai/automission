@@ -28,11 +28,25 @@ def create_agent_worktree(mission_dir: Path, agent_id: str) -> Path:
         shutil.rmtree(workspace_path)
 
     # Clone mission_dir → workspace (hardlinks objects, fast)
-    subprocess.run(
+    clone_result = subprocess.run(
         ["git", "clone", "--local", str(mission_dir), str(workspace_path)],
         capture_output=True,
-        check=True,
+        cwd=str(mission_dir),
     )
+    if clone_result.returncode != 0:
+        stderr_msg = clone_result.stderr.decode(errors="replace").strip()
+        logger.error(
+            "git clone --local failed (rc=%d) for %s: %s",
+            clone_result.returncode,
+            agent_id,
+            stderr_msg,
+        )
+        raise subprocess.CalledProcessError(
+            clone_result.returncode,
+            clone_result.args,
+            clone_result.stdout,
+            clone_result.stderr,
+        )
 
     # Inherit git user config from source repo (clones don't copy local config;
     # without this, git commit fails in CI where no global config exists).

@@ -96,7 +96,7 @@ def ensure_docker(image: str) -> None:
         return
 
     logger.info("Docker image %r not found locally, pulling...", image)
-    pull = subprocess.run(["docker", "pull", image], capture_output=True)
+    pull = subprocess.run(["docker", "pull", image], stderr=subprocess.PIPE)
     if pull.returncode != 0:
         raise RuntimeError(
             f"Docker image {image!r} not found and auto-pull failed.\n"
