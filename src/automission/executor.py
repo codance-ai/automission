@@ -170,6 +170,22 @@ def _execute_mission(
             pass
         return False
 
+    # Log acceptance plan to mission log
+    if mission_logger:
+        with Ledger(workspace_dir / "mission.db") as ledger:
+            acceptance_groups = ledger.get_acceptance_groups(mission_id)
+        plan_groups = []
+        for g in acceptance_groups:
+            plan_groups.append(
+                {
+                    "name": g.id,
+                    "title": g.name,
+                    "depends": g.depends_on if g.depends_on else None,
+                    "criteria": [c.text for c in g.criteria],
+                }
+            )
+        mission_logger.plan(groups=plan_groups, duration_s=0.0)
+
     if agents > 1:
         outcome = run_multi_agent(
             mission_id=mission_id,
