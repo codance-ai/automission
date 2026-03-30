@@ -42,10 +42,14 @@ def format_automission_md(stable: StableContext) -> str:
     lines.append("## Rules")
     lines.append(f"- {stable.side_effect_policy}")
     lines.append(
-        "- Do not modify: AUTOMISSION.md, MISSION.md, ACCEPTANCE.md, verify.sh, mission.db"
+        "- Do not modify: AUTOMISSION.md, MISSION.md, ACCEPTANCE.md, mission.db"
     )
     lines.append("- Read ACCEPTANCE.md before starting work")
     lines.append("- Run verify.sh after making changes")
+    lines.append(
+        "- verify.sh is the test gate. Update it if the default test command "
+        "does not match your implementation (e.g., wrong runner or test directory)."
+    )
     lines.append(
         "- Never hardcode /workspace or any absolute path in code or tests. "
         "Use relative paths (e.g., ./file.py), Path(__file__).parent, or os.getcwd(). "

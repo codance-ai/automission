@@ -245,3 +245,24 @@ class TestCreateMission:
         assert (result / "skills" / "manifest.json").exists()
         content = (result / "AUTOMISSION.md").read_text()
         assert "My Skill" in content
+
+    def test_verify_sh_is_not_protected_in_automission_md(self, tmp_path, fixture_dir):
+        ws = tmp_path / "missions" / "test-verify-sh-not-protected"
+        backend = MockBackend()
+        result = create_mission(
+            mission_id="test-verify-sh-not-protected",
+            goal="Build calculator",
+            acceptance_path=fixture_dir / "ACCEPTANCE.md",
+            verify_path=fixture_dir / "verify.sh",
+            backend=backend,
+            workspace_dir=ws,
+        )
+        content = (result / "AUTOMISSION.md").read_text()
+        # verify.sh should NOT be in the "Do not modify" list anymore
+        # But it IS still in the "Run `bash verify.sh`" instruction, which is fine.
+        do_not_modify_line = next(
+            line for line in content.splitlines() if "Do not modify:" in line
+        )
+        assert "verify.sh" not in do_not_modify_line
+        # The extra rule "Do not modify verify.sh" should also be gone
+        assert "Do not modify verify.sh" not in content

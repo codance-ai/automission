@@ -153,7 +153,7 @@ def create_mission(
         stable = StableContext(
             goal=goal,
             skills=skill_contents,
-            rules=["Do not modify verify.sh"],
+            rules=[],
         )
         backend.prepare_workspace(workspace_dir, stable)
 
