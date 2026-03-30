@@ -1166,31 +1166,66 @@ class TestFmtChangedFilesFiltering:
 class TestRenderCriteria:
     """Tests for _render_criteria helper."""
 
-    def test_summary_and_group_analysis(self, capsys):
+    def test_summary_and_next_actions(self, capsys):
         from automission.cli import _render_criteria
 
         event = {
-            "summary": "Tests failing, 1/2 groups pass.",
-            "group_analysis": {"basic_arithmetic": True, "input_handling": False},
-            "next_actions": ["Fix input handling"],
+            "summary": "Tests failing, input handling incomplete.",
+            "next_actions": ["Fix input handling", "Add validation"],
         }
         _render_criteria(event)
         out = capsys.readouterr().out
         assert "Tests failing" in out
-        assert "basic_arithmetic" in out
-        assert "input_handling" in out
+        assert "Fix input handling" in out
+        assert "Add validation" in out
 
-    def test_verbose_next_actions(self, capsys):
+    def test_next_actions_limited_to_3_by_default(self, capsys):
+        from automission.cli import _render_criteria
+
+        event = {
+            "summary": "Multiple issues.",
+            "next_actions": ["Action 1", "Action 2", "Action 3", "Action 4"],
+        }
+        _render_criteria(event)
+        out = capsys.readouterr().out
+        assert "Action 1" in out
+        assert "Action 3" in out
+        assert "Action 4" not in out
+
+    def test_verbose_shows_all_actions_and_root_cause(self, capsys):
         from automission.cli import _render_criteria
 
         event = {
             "summary": "Division by zero not handled.",
-            "group_analysis": {"error_handling": False},
-            "next_actions": ["Handle division by zero case"],
+            "next_actions": [
+                "Handle division by zero case",
+                "Action 2",
+                "Action 3",
+                "Action 4",
+            ],
+            "root_cause": "Missing guard in evaluate()",
         }
         _render_criteria(event, verbose=True)
         out = capsys.readouterr().out
         assert "Handle division by zero case" in out
+        assert "Action 4" in out
+        assert "Missing guard in evaluate()" in out
+
+    def test_no_group_analysis_displayed(self, capsys):
+        """group_analysis should not appear in display (advisory data kept internal)."""
+        from automission.cli import _render_criteria
+
+        event = {
+            "summary": "Tests pass.",
+            "group_analysis": {"basic_arithmetic": True, "input_handling": False},
+            "next_actions": [],
+        }
+        _render_criteria(event)
+        out = capsys.readouterr().out
+        assert "basic_arithmetic" not in out
+        assert "input_handling" not in out
+        assert "\u2713" not in out  # no checkmark
+        assert "\u2717" not in out  # no cross
 
     def test_empty_event(self, capsys):
         from automission.cli import _render_criteria
@@ -1258,7 +1293,7 @@ class TestRenderEventRichOutput:
         out = capsys.readouterr().out
         assert "changed" not in out
 
-    def test_verification_with_summary_and_groups(self, capsys):
+    def test_verification_fail_with_narrative(self, capsys):
         from automission.cli import _render_event
 
         event = {
@@ -1271,11 +1306,13 @@ class TestRenderEventRichOutput:
         _render_event(event)
         out = capsys.readouterr().out
         assert "FAIL" in out
-        assert "input_handling" in out
-        assert "basic_arithmetic" in out
         assert "Tests failing" in out
+        assert "Fix subprocess call" in out
+        # group_analysis should not appear as checkmarks
+        assert "\u2713" not in out
+        assert "\u2717" not in out
 
-    def test_verification_pass(self, capsys):
+    def test_verification_pass_with_narrative(self, capsys):
         from automission.cli import _render_event
 
         event = {
@@ -1289,3 +1326,18 @@ class TestRenderEventRichOutput:
         out = capsys.readouterr().out
         assert "PASS" in out
         assert "All tests pass" in out
+
+    def test_verification_no_duplicate_summary(self, capsys):
+        """Summary should appear exactly once (was a bug)."""
+        from automission.cli import _render_event
+
+        event = {
+            "type": "verification",
+            "passed": True,
+            "summary": "Unique summary text.",
+            "group_analysis": {},
+            "next_actions": [],
+        }
+        _render_event(event)
+        out = capsys.readouterr().out
+        assert out.count("Unique summary text.") == 1

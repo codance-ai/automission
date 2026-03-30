@@ -896,25 +896,25 @@ def _fmt_changed_files(files: list[str], max_shown: int = 5) -> str:
 def _render_criteria(
     event_or_vr: dict, *, indent: str = "    ", verbose: bool = False
 ) -> None:
-    """Render verification summary from event or verification result dict."""
+    """Render verification narrative: summary + next actions.
+
+    Shows what happened and what remains, rather than per-group pass/fail
+    judgments (which depend on unreliable LLM advisory analysis).
+    """
     summary = event_or_vr.get("summary", "")
     if summary:
         click.echo(f"{indent}{summary}")
 
-    group_analysis = event_or_vr.get("group_analysis", {})
-    if group_analysis:
-        for gid, completed in group_analysis.items():
-            symbol = (
-                click.style("\u2713", fg="green")
-                if completed
-                else click.style("\u2717", fg="red")
-            )
-            click.echo(f"{indent}{symbol} {gid}")
-
     next_actions = event_or_vr.get("next_actions", [])
-    if verbose and next_actions:
-        for action in next_actions:
+    if next_actions:
+        shown = next_actions if verbose else next_actions[:3]
+        for action in shown:
             click.echo(f"{indent}  \u2192 {action}")
+
+    if verbose:
+        root_cause = event_or_vr.get("root_cause", "")
+        if root_cause:
+            click.echo(f"{indent}  root cause: {root_cause}")
 
 
 def _render_attempt_log(
@@ -955,18 +955,16 @@ def _render_attempt_log(
     if changed:
         click.echo(f"    changed: {_fmt_changed_files(changed)}")
 
-    # Criteria breakdown
+    # Verification narrative
     if attempt.get("verification_result"):
         try:
             vr = VerificationResult.from_json(attempt["verification_result"])
             criteria_data = {
                 "summary": vr.critic.summary,
-                "group_analysis": vr.group_analysis,
                 "next_actions": vr.critic.next_actions,
+                "root_cause": vr.critic.root_cause,
             }
             _render_criteria(criteria_data, verbose=verbose)
-            if verbose and vr.critic.root_cause:
-                click.echo(f"    root cause: {vr.critic.root_cause}")
         except (json.JSONDecodeError, KeyError) as e:
             logger.debug("Could not parse verification result: %s", e)
 
@@ -999,9 +997,6 @@ def _render_event(event: dict) -> None:
         label = "PASS" if passed else "FAIL"
         click.echo(f"  verify: {click.style(label, fg=color)}")
         _render_criteria(event)
-        summary = event.get("summary")
-        if summary:
-            click.echo(f"    {summary}")
     elif etype == "group_start":
         name = event.get("group_name", event.get("group_id", "?"))
         click.echo(f"\nWorking on: {name}")
