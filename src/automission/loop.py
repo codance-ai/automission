@@ -92,7 +92,7 @@ def run_loop(
 
     If target_groups is provided, the agent focuses on those groups only
     (used by orchestrator for claimed groups). The critic still evaluates
-    all groups to compute group_statuses.
+    all groups to compute group_analysis.
 
     Returns a MissionOutcome string value: "completed", "failed",
     "cancelled", or "resource_limit".
@@ -205,7 +205,7 @@ def run_loop(
                 # Don't set mission status — caller decides mission completion.
                 target_ids = {g.id for g in target_groups}
                 all_targets_done = all(
-                    verification.group_statuses.get(gid, False) for gid in target_ids
+                    verification.group_analysis.get(gid, False) for gid in target_ids
                 )
                 if all_targets_done:
                     logger.info(
@@ -248,7 +248,7 @@ def _run_one_iteration(
     Extracted core used by both run_single_iteration() and run_loop().
 
     If target_groups is set, the agent prompt focuses on those groups' criteria.
-    The critic still evaluates all groups for group_statuses computation.
+    The critic still evaluates all groups for group_analysis computation.
     """
     # Clean stale lock file
     lock_file = workdir / ".git" / "index.lock"
@@ -339,10 +339,6 @@ def _run_one_iteration(
         commit_hash=commit_hash or "",
     )
 
-    # ── Update group statuses ──
-    if verification.group_statuses:
-        ledger.update_group_statuses(verification.group_statuses)
-
     if event_writer:
         event_writer.emit(
             "attempt_end",
@@ -360,7 +356,7 @@ def _run_one_iteration(
             {
                 "passed": verification.gate_passed,
                 "summary": verification.critic.summary,
-                "group_statuses": verification.group_statuses,
+                "group_analysis": verification.group_analysis,
                 "next_actions": verification.critic.next_actions,
             },
         )
@@ -381,14 +377,14 @@ def _derive_contract(
 ) -> AttemptContract:
     """Derive attempt contract from last verification using group statuses + critic feedback.
 
-    Uses group_statuses from Critic (group-level completion) and next_actions for
+    Uses group_analysis from Critic (group-level completion) and next_actions for
     focused retry guidance. No criterion text matching needed.
     """
-    group_statuses = last_verification.group_statuses
+    group_analysis = last_verification.group_analysis
     groups = target_groups if target_groups is not None else all_groups
 
     # Focus groups: incomplete groups with deps satisfied
-    completed_ids = {gid for gid, done in group_statuses.items() if done}
+    completed_ids = {gid for gid, done in group_analysis.items() if done}
     focus_groups = []
     for g in groups:
         if g.id not in completed_ids:

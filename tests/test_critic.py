@@ -45,7 +45,7 @@ class TestCritic:
             "root_cause": "Function missing",
             "next_actions": ["Implement add function"],
             "blockers": [],
-            "group_statuses": [{"group_id": "basic", "completed": False}],
+            "group_analysis": [{"group_id": "basic", "completed": False}],
         }
         backend = Mock()
         backend.query = Mock(return_value=critic_output)
@@ -56,7 +56,7 @@ class TestCritic:
         assert result.summary == "add() not implemented"
         assert result.root_cause == "Function missing"
         assert result.next_actions == ["Implement add function"]
-        assert result.group_statuses == {"basic": False}
+        assert result.group_analysis == {"basic": False}
 
     def test_analyze_passing(self, sample_groups, passing_harness):
         critic_output = {
@@ -64,30 +64,30 @@ class TestCritic:
             "root_cause": "",
             "next_actions": [],
             "blockers": [],
-            "group_statuses": [{"group_id": "basic", "completed": True}],
+            "group_analysis": [{"group_id": "basic", "completed": True}],
         }
         backend = Mock()
         backend.query = Mock(return_value=critic_output)
         critic = Critic(backend=backend)
         result = critic.analyze(passing_harness, sample_groups)
 
-        assert result.group_statuses == {"basic": True}
+        assert result.group_analysis == {"basic": True}
         assert result.summary == "All tests pass."
 
-    def test_malformed_group_statuses(self, sample_groups, failing_harness):
+    def test_malformed_group_analysis(self, sample_groups, failing_harness):
         critic_output = {
             "summary": "test",
             "root_cause": "",
             "next_actions": [],
             "blockers": [],
-            "group_statuses": [{"bad_key": "oops"}],
+            "group_analysis": [{"bad_key": "oops"}],
         }
         backend = Mock()
         backend.query = Mock(return_value=critic_output)
         critic = Critic(backend=backend)
         result = critic.analyze(failing_harness, sample_groups)
 
-        assert result.group_statuses == {}
+        assert result.group_analysis == {}
         assert "Critic error" in result.summary
 
     def test_cli_failure_returns_empty(self, sample_groups, failing_harness):
@@ -96,5 +96,5 @@ class TestCritic:
         critic = Critic(backend=backend)
         result = critic.analyze(failing_harness, sample_groups)
 
-        assert result.group_statuses == {}
+        assert result.group_analysis == {}
         assert "Critic error" in result.summary

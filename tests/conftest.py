@@ -33,7 +33,7 @@ class MockCriticBackend:
                 "root_cause": "",
                 "next_actions": [],
                 "blockers": [],
-                "group_statuses": [
+                "group_analysis": [
                     {"group_id": gid, "completed": True} for gid in group_ids
                 ],
             }
@@ -42,7 +42,7 @@ class MockCriticBackend:
             "root_cause": "Gate verification failed.",
             "next_actions": ["Review the test output and fix failing tests."],
             "blockers": [],
-            "group_statuses": [
+            "group_analysis": [
                 {"group_id": gid, "completed": False} for gid in group_ids
             ],
         }

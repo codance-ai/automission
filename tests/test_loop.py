@@ -473,7 +473,7 @@ class TestEventEnrichment:
     def test_verification_event_includes_summary_and_statuses(
         self, tmp_path, fixture_dir
     ):
-        """Verification event should include summary, group_statuses, and next_actions."""
+        """Verification event should include summary, group_analysis, and next_actions."""
         from automission.events import EventWriter, EventTailer
 
         backend = MockBackend(
@@ -510,7 +510,7 @@ class TestEventEnrichment:
         ve = verify_events[0]
         assert "passed" in ve
         assert "summary" in ve
-        assert "group_statuses" in ve
+        assert "group_analysis" in ve
         assert "next_actions" in ve
 
     def test_attempt_end_event_includes_changed_files(self, tmp_path, fixture_dir):

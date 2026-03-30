@@ -195,7 +195,7 @@ class TestE2EWithMockCritic:
             "root_cause": "",
             "next_actions": [],
             "blockers": [],
-            "group_statuses": [
+            "group_analysis": [
                 {"group_id": "basic_operations", "completed": True},
                 {"group_id": "edge_cases", "completed": True},
             ],
@@ -221,7 +221,7 @@ class TestE2EWithMockCritic:
             result.critic.summary
             == "All 6 tests pass. Calculator implementation is complete."
         )
-        assert result.group_statuses == {"basic_operations": True, "edge_cases": True}
+        assert result.group_analysis == {"basic_operations": True, "edge_cases": True}
 
 
 class TestE2EMultiIteration:
