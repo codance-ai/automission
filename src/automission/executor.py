@@ -254,17 +254,13 @@ def _run_single_agent_frontier(
                             mission_id, MissionOutcome.COMPLETED
                         )
                         return MissionOutcome.COMPLETED
-                    else:
-                        logger.warning(
-                            "Mission marked complete by Critic, but global verify.sh failed. "
-                            "Re-analyzing to fix frontier."
-                        )
-                        # Fix advisory statuses by running critic on the failing global harness
-                        fix_critic = critic.analyze(harness_result, groups)
-                        if fix_critic.group_analysis:
-                            ledger.update_group_analysis(fix_critic.group_analysis)
-                        continue
-
+                    # Advisory was wrong — not actually complete
+                    logger.warning(
+                        "All groups marked complete by advisory, "
+                        "but verify.sh failed — mission failed"
+                    )
+                    ledger.update_mission_status(mission_id, MissionOutcome.FAILED)
+                    return MissionOutcome.FAILED
                 # Blocked (shouldn't happen in valid DAG)
                 ledger.update_mission_status(mission_id, MissionOutcome.FAILED)
                 return MissionOutcome.FAILED
@@ -339,19 +335,13 @@ def _run_single_agent_frontier(
                             mission_id, MissionOutcome.COMPLETED
                         )
                         return MissionOutcome.COMPLETED
-                    else:
-                        logger.warning(
-                            "Mission marked complete by Critic, but global verify.sh failed. "
-                            "Re-analyzing to fix frontier."
-                        )
-                        # Fix advisory statuses by running critic on the failing global harness
-                        fix_critic = critic.analyze(harness_result, groups)
-                        if fix_critic.group_analysis:
-                            ledger.update_group_analysis(fix_critic.group_analysis)
-                        # Ensure the target group is cleared to avoid loop
-                        ledger.update_group_status(current_group.id, completed=False)
-                        continue
-
+                    # Advisory was wrong — not actually complete
+                    logger.warning(
+                        "All groups marked complete by advisory, "
+                        "but verify.sh failed — mission failed"
+                    )
+                    ledger.update_mission_status(mission_id, MissionOutcome.FAILED)
+                    return MissionOutcome.FAILED
                 # Target group done, new frontier may have opened — loop
                 continue
 
