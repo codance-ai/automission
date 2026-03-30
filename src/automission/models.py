@@ -90,6 +90,11 @@ class LoopResult:
 
     Carries the last VerificationResult so callers can inspect group_analysis
     without race-prone ledger reads in multi-agent scenarios.
+
+    Note: in scoped mode (target_groups set), outcome=COMPLETED means the
+    critic confirmed the target groups are satisfied. It does NOT imply
+    harness.passed — verify.sh may still fail due to other groups' tests.
+    Callers must gate merges on an independent verify.sh check.
     """
 
     outcome: str  # MissionOutcome value

@@ -320,8 +320,9 @@ def _run_single_agent_frontier(
                 # Only trusted when verify.sh (harness) also passed.
                 vr = loop_result.last_verification
                 if vr and vr.harness.passed:
+                    known_ids = {g.id for g in all_groups}
                     for gid, done in vr.group_analysis.items():
-                        if done and gid != current_group.id:
+                        if done and gid != current_group.id and gid in known_ids:
                             if not ledger.is_group_completed(gid):
                                 ledger.update_group_status(gid, completed=True)
                                 logger.info(
