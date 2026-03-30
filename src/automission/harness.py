@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from automission import DEFAULT_DOCKER_IMAGE
 from automission.docker import build_docker_cmd
 from automission.models import HarnessResult, VerificationSurface
 
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 def run_verify_sh(
     workdir: Path,
     script_path: Path,
-    docker_image: str = "ghcr.io/codance-ai/automission:latest",
+    docker_image: str = DEFAULT_DOCKER_IMAGE,
 ) -> dict[str, Any]:
     """Run verify.sh and return structured gate result.
 
@@ -100,7 +101,7 @@ def run_verify_sh(
 class Harness:
     """Deterministic test execution — runs verify.sh, returns structured result."""
 
-    def __init__(self, docker_image: str = "ghcr.io/codance-ai/automission:latest"):
+    def __init__(self, docker_image: str = DEFAULT_DOCKER_IMAGE):
         self.docker_image = docker_image
 
     def run(self, workdir: Path, verify_sh: Path | None) -> HarnessResult:

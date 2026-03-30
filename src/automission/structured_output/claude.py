@@ -6,6 +6,7 @@ import json
 import logging
 import subprocess
 
+from automission import DEFAULT_DOCKER_IMAGE
 from automission.docker import build_docker_cmd
 from automission.structured_output._errors import (
     CLIResponseError,
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ClaudeStructuredOutput:
     """Structured output via `claude -p --json-schema`."""
 
-    def __init__(self, docker_image: str = "ghcr.io/codance-ai/automission:latest"):
+    def __init__(self, docker_image: str = DEFAULT_DOCKER_IMAGE):
         self.docker_image = docker_image
 
     def query(

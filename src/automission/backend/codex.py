@@ -6,6 +6,7 @@ import json
 import logging
 from pathlib import Path
 
+from automission import DEFAULT_DOCKER_IMAGE
 from automission.config import get_oauth_volumes
 from automission.models import AttemptResult, AttemptSpec, StableContext, TokenUsage
 from automission.backend.protocol import format_automission_md
@@ -21,7 +22,7 @@ class CodexBackend:
 
     def __init__(
         self,
-        docker_image: str = "ghcr.io/codance-ai/automission:latest",
+        docker_image: str = DEFAULT_DOCKER_IMAGE,
         auth_method: str = "api_key",
         model: str | None = None,
     ):

@@ -7,6 +7,7 @@ import logging
 import sqlite3
 from pathlib import Path
 
+from automission import DEFAULT_DOCKER_IMAGE
 from automission.models import AcceptanceGroup, Criterion
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ class Ledger:
                 max_iterations INTEGER NOT NULL DEFAULT 20,
                 max_cost REAL NOT NULL DEFAULT 10.0,
                 timeout INTEGER NOT NULL DEFAULT 3600,
-                docker_image TEXT NOT NULL DEFAULT 'ghcr.io/codance-ai/automission:latest',
+                docker_image TEXT NOT NULL,
                 total_cost REAL NOT NULL DEFAULT 0.0,
                 total_attempts INTEGER NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -143,7 +144,7 @@ class Ledger:
         max_iterations: int = 20,
         max_cost: float = 10.0,
         timeout: int = 3600,
-        docker_image: str = "ghcr.io/codance-ai/automission:latest",
+        docker_image: str = DEFAULT_DOCKER_IMAGE,
     ) -> None:
         self.conn.execute(
             """INSERT INTO missions (id, goal, backend, model, backend_auth,

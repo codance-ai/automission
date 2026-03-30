@@ -186,6 +186,7 @@ class TestRunModelFlag:
                     "automission.config", fromlist=["AutomissionConfig"]
                 ).AutomissionConfig(),
             ),
+            patch("automission.docker.ensure_docker"),
         ):
             result = runner.invoke(
                 cli,

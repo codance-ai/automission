@@ -16,7 +16,7 @@ import click
 import questionary
 from questionary import Style
 
-from automission import __version__
+from automission import DEFAULT_DOCKER_IMAGE, __version__
 from automission.config import (
     CONFIG_PATH,
     _KEY_MAP,
@@ -219,7 +219,7 @@ def init(force: bool) -> None:
 
     if docker_ok:
         cfg = load_config()
-        image = cfg.get("docker", "image", "ghcr.io/codance-ai/automission:latest")
+        image = cfg.get("docker", "image", DEFAULT_DOCKER_IMAGE)
         result = subprocess.run(
             ["docker", "image", "inspect", image],
             capture_output=True,
@@ -344,7 +344,7 @@ def _run_oauth_login(backend: str) -> None:
 @click.option("--model", default="claude-sonnet-4-6", help="Model for agent execution")
 @click.option(
     "--docker-image",
-    default="ghcr.io/codance-ai/automission:latest",
+    default=DEFAULT_DOCKER_IMAGE,
     help="Docker image for agent",
 )
 @click.option(
@@ -752,7 +752,7 @@ def _collect_changed_files(ledger: Ledger, mission_id: str, ws: Path) -> list[di
 
 def _create_backend(
     name: str,
-    docker_image: str = "ghcr.io/codance-ai/automission:latest",
+    docker_image: str = DEFAULT_DOCKER_IMAGE,
     auth_method: str = "api_key",
     model: str | None = None,
 ):
@@ -789,7 +789,7 @@ def _create_mission_workspace(
     timeout: int,
     backend_name: str,
     model: str = "claude-sonnet-4-6",
-    docker_image: str = "ghcr.io/codance-ai/automission:latest",
+    docker_image: str = DEFAULT_DOCKER_IMAGE,
     init_files_dir: Path | None = None,
     workspace_dir: Path | None = None,
     acceptance_content: str | None = None,

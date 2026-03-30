@@ -8,6 +8,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
+from automission import DEFAULT_DOCKER_IMAGE
 from automission.acceptance import parse_acceptance_md
 from automission.backend.protocol import AgentBackend
 from automission.db import Ledger
@@ -50,7 +51,7 @@ def create_mission(
     max_cost: float = 10.0,
     timeout: int = 3600,
     backend_name: str = "claude",
-    docker_image: str = "ghcr.io/codance-ai/automission:latest",
+    docker_image: str = DEFAULT_DOCKER_IMAGE,
     model: str = "claude-sonnet-4-6",
     agent_auth: str = "api_key",
     verifier_backend_name: str = "claude",

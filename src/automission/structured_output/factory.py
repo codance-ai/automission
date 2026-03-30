@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from automission import DEFAULT_DOCKER_IMAGE
 from automission.structured_output.protocol import StructuredOutputBackend
 
 
 def create_structured_backend(
     name: str,
-    docker_image: str = "ghcr.io/codance-ai/automission:latest",
+    docker_image: str = DEFAULT_DOCKER_IMAGE,
     auth_method: str = "api_key",
 ) -> StructuredOutputBackend:
     """Create a structured output backend by name.

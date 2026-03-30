@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from automission import DEFAULT_DOCKER_IMAGE
 from automission.docker import build_docker_cmd
 from automission.structured_output._errors import (
     CLIResponseError,
@@ -54,7 +55,7 @@ class CodexStructuredOutput:
 
     def __init__(
         self,
-        docker_image: str = "ghcr.io/codance-ai/automission:latest",
+        docker_image: str = DEFAULT_DOCKER_IMAGE,
         auth_method: str = "api_key",
     ):
         self.docker_image = docker_image
