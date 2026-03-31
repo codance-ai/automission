@@ -85,6 +85,7 @@ def run_loop(
     harness: Harness,
     critic: Critic,
     max_iterations: int = 20,
+    iteration_budget: int | None = None,
     max_cost: float = 10.0,
     timeout: int = 3600,
     agent_id: str = "agent-1",
@@ -102,6 +103,10 @@ def run_loop(
     (used by orchestrator for claimed groups). The critic still evaluates
     all groups to compute group_analysis.
 
+    iteration_budget: if set, limits this invocation to at most N iterations
+    from the current total_attempts. The effective ceiling is
+    min(max_iterations, total_attempts + iteration_budget).
+
     Returns a LoopResult containing the MissionOutcome string and
     the last VerificationResult (for bulk group-completion marking).
     """
@@ -114,6 +119,15 @@ def run_loop(
     try:
         # Resume: load last verification from ledger if exists
         last_verification = _load_last_verification(ledger, mission_id)
+
+        # Compute iteration ceiling once — budget is relative to the
+        # total_attempts at invocation time, not a sliding window.
+        if iteration_budget is not None:
+            mission_snap = ledger.get_mission(mission_id)
+            base = mission_snap["total_attempts"] if mission_snap else 0
+            iter_ceiling = min(max_iterations, base + iteration_budget)
+        else:
+            iter_ceiling = max_iterations
 
         while True:
             mission = ledger.get_mission(mission_id)
@@ -130,12 +144,12 @@ def run_loop(
                 return LoopResult(MissionOutcome.CANCELLED, last_verification)
 
             # Max iterations
-            if mission["total_attempts"] >= max_iterations:
+            if mission["total_attempts"] >= iter_ceiling:
                 ledger.update_mission_status(mission_id, MissionOutcome.RESOURCE_LIMIT)
                 logger.info(
-                    "Mission %s hit max iterations (%d)",
+                    "Mission %s hit iteration ceiling (%d)",
                     mission_id,
-                    max_iterations,
+                    iter_ceiling,
                 )
                 return LoopResult(MissionOutcome.RESOURCE_LIMIT, last_verification)
 

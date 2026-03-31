@@ -222,6 +222,92 @@ class TestRunLoop:
         assert ledger.get_mission("loop-iter")["total_attempts"] == 3
         ledger.close()
 
+    def test_iteration_budget_limits_run(self, tmp_path, fixture_dir):
+        """iteration_budget caps iterations relative to current total_attempts."""
+        backend = MockBackend(
+            simulate_files={"src/calc.py": "def add(a, b): return a + b\n"},
+        )
+        ws = create_mission(
+            mission_id="loop-budget",
+            goal="Build calculator",
+            acceptance_path=fixture_dir / "ACCEPTANCE.md",
+            verify_path=fixture_dir / "verify.sh",
+            backend=backend,
+            workspace_dir=tmp_path / "ws",
+            init_files_dir=fixture_dir / "workspace",
+        )
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
+
+        # Pre-set total_attempts to 10 to simulate prior work
+        ledger = Ledger(ws / "mission.db")
+        ledger.conn.execute(
+            "UPDATE missions SET total_attempts = 10 WHERE id = 'loop-budget'"
+        )
+        ledger.conn.commit()
+        ledger.close()
+
+        # With iteration_budget=3, should stop at total_attempts=13
+        # (not at max_iterations=20)
+        result = run_loop(
+            mission_id="loop-budget",
+            workdir=ws,
+            backend=backend,
+            harness=harness,
+            critic=critic,
+            max_iterations=20,
+            iteration_budget=3,
+            max_cost=100.0,
+            timeout=3600,
+        )
+        assert result.outcome == "resource_limit"
+        ledger = Ledger(ws / "mission.db")
+        assert ledger.get_mission("loop-budget")["total_attempts"] == 13
+        ledger.close()
+
+    def test_iteration_budget_respects_global_ceiling(self, tmp_path, fixture_dir):
+        """iteration_budget does not exceed max_iterations global ceiling."""
+        backend = MockBackend(
+            simulate_files={"src/calc.py": "def add(a, b): return a + b\n"},
+        )
+        ws = create_mission(
+            mission_id="loop-ceiling",
+            goal="Build calculator",
+            acceptance_path=fixture_dir / "ACCEPTANCE.md",
+            verify_path=fixture_dir / "verify.sh",
+            backend=backend,
+            workspace_dir=tmp_path / "ws",
+            init_files_dir=fixture_dir / "workspace",
+        )
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
+
+        # Pre-set total_attempts to 18
+        ledger = Ledger(ws / "mission.db")
+        ledger.conn.execute(
+            "UPDATE missions SET total_attempts = 18 WHERE id = 'loop-ceiling'"
+        )
+        ledger.conn.commit()
+        ledger.close()
+
+        # Budget says 5 more (would reach 23), but global ceiling is 20
+        # Should stop at 20, not 23
+        result = run_loop(
+            mission_id="loop-ceiling",
+            workdir=ws,
+            backend=backend,
+            harness=harness,
+            critic=critic,
+            max_iterations=20,
+            iteration_budget=5,
+            max_cost=100.0,
+            timeout=3600,
+        )
+        assert result.outcome == "resource_limit"
+        ledger = Ledger(ws / "mission.db")
+        assert ledger.get_mission("loop-ceiling")["total_attempts"] == 20
+        ledger.close()
+
     def test_circuit_breaker_max_cost(self, tmp_path, fixture_dir):
         backend = MockBackend(
             simulate_files={"src/calc.py": "def add(a, b): return a + b\n"},

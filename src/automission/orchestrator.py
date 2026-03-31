@@ -316,9 +316,9 @@ def _agent_worker(
 
             try:
                 # Run the agent loop in the worktree
-                # Use limited iterations per group claim to avoid hogging
-                per_group_iterations = max(1, max_iterations // max(len(frontier), 1))
-                per_group_iterations = min(per_group_iterations, max_iterations)
+                # Budget remaining iterations across frontier groups
+                remaining_iters = max(0, max_iterations - mission["total_attempts"])
+                per_group_iterations = max(1, remaining_iters // max(len(frontier), 1))
 
                 # Get full AcceptanceGroup object for the claimed group
                 all_groups = ledger.get_acceptance_groups(mission_id)
@@ -330,7 +330,8 @@ def _agent_worker(
                     backend=backend,
                     harness=harness,
                     critic=critic,
-                    max_iterations=per_group_iterations,
+                    max_iterations=max_iterations,
+                    iteration_budget=per_group_iterations,
                     max_cost=max_cost,
                     timeout=timeout,
                     agent_id=agent_id,
