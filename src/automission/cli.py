@@ -893,6 +893,24 @@ def _fmt_changed_files(files: list[str], max_shown: int = 5) -> str:
     return f"{shown} +{len(files) - max_shown} more ({len(files)} files)"
 
 
+def _attempt_gate_label(attempt: dict) -> tuple[str, str]:
+    """Return (label, color) for an attempt's verification status.
+
+    FAIL (red) when harness failed, IN PROGRESS (yellow) when harness passed
+    but critic indicates remaining work, PASS (green) otherwise.
+    """
+    if not attempt.get("verification_passed"):
+        return "FAIL", "red"
+    if attempt.get("verification_result"):
+        try:
+            vr_data = json.loads(attempt["verification_result"])
+            if vr_data.get("critic", {}).get("next_actions"):
+                return "IN PROGRESS", "yellow"
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
+    return "PASS", "green"
+
+
 def _render_criteria(
     event_or_vr: dict, *, indent: str = "    ", verbose: bool = False
 ) -> None:
@@ -925,8 +943,7 @@ def _render_attempt_log(
     verbose: bool = False,
 ) -> None:
     """Render a single attempt with full detail for logs output."""
-    gate = "PASS" if attempt["verification_passed"] else "FAIL"
-    color = "green" if attempt["verification_passed"] else "red"
+    gate, color = _attempt_gate_label(attempt)
     tokens = (attempt["token_input"] or 0) + (attempt["token_output"] or 0)
 
     # Header line — include retry focus for attempt > 1
@@ -993,8 +1010,13 @@ def _render_event(event: dict) -> None:
             click.echo(f"    changed: {_fmt_changed_files(changed)}")
     elif etype == "verification":
         passed = event.get("passed", False)
-        color = "green" if passed else "red"
-        label = "PASS" if passed else "FAIL"
+        next_actions = event.get("next_actions", [])
+        if not passed:
+            label, color = "FAIL", "red"
+        elif next_actions:
+            label, color = "IN PROGRESS", "yellow"
+        else:
+            label, color = "PASS", "green"
         click.echo(f"  verify: {click.style(label, fg=color)}")
         _render_criteria(event)
     elif etype == "group_start":
@@ -1129,8 +1151,7 @@ def _print_mission(mission: dict, ws: Path, ledger: Ledger) -> None:
     if attempts:
         click.echo("\nAttempt History:")
         for a in attempts:
-            gate = "PASS" if a["verification_passed"] else "FAIL"
-            color = "green" if a["verification_passed"] else "red"
+            gate, color = _attempt_gate_label(a)
             tokens = (a["token_input"] or 0) + (a["token_output"] or 0)
             click.echo(
                 f"  #{a['attempt_number']}  {a['agent_id']:10s}  "
