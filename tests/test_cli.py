@@ -308,6 +308,177 @@ class TestStatusCommand:
             assert result.exit_code == 0
             assert "no mission" in result.output.lower()
 
+    def test_status_shows_critic_summary(self, runner, tmp_path):
+        """Attempt history should include critic summary at end of each line."""
+        from automission.db import Ledger
+        from automission.models import (
+            CriticResult,
+            HarnessResult,
+            VerificationResult,
+        )
+
+        ws = tmp_path / "test-mission"
+        ws.mkdir()
+        vr = VerificationResult(
+            harness=HarnessResult(passed=True, exit_code=0, stdout="", stderr=""),
+            critic=CriticResult(
+                summary="all tests pass, auth fully implemented",
+                root_cause="",
+                next_actions=[],
+                blockers=[],
+                group_analysis={},
+            ),
+        )
+        with Ledger(ws / "mission.db") as ledger:
+            ledger.create_mission("m1", goal="test", agents=1)
+            ledger.record_attempt(
+                mission_id="m1",
+                attempt_id="a1",
+                agent_id="agent-1",
+                attempt_number=1,
+                status="completed",
+                exit_code=0,
+                duration_s=42.0,
+                cost_usd=0.25,
+                token_input=12000,
+                token_output=74000,
+                changed_files=["auth.py"],
+                verification_passed=True,
+                verification_result=vr.to_json(),
+                commit_hash="abc123",
+            )
+
+        with patch("automission.cli.DEFAULT_BASE_DIR", tmp_path):
+            result = runner.invoke(cli, ["status", "m1"])
+            assert result.exit_code == 0
+            assert "all tests pass, auth fully implemented" in result.output
+
+
+class TestReadMissionLog:
+    """Tests for _read_mission_log helper."""
+
+    SAMPLE_LOG = (
+        "=" * 80
+        + "\n  AUTOMISSION — test-001\n  2026-03-31\n"
+        + "=" * 80
+        + "\n\n"
+        + "==== PLAN "
+        + "=" * 70
+        + "\nDuration: 1s\n\n  Group 1: [auth] Login\n    - test criterion\n\n"
+        + "\n==== ATTEMPT 1 "
+        + "=" * 65
+        + "\nAgent: agent-1 | Scope: auth\n\n"
+        + "---- prompt (100 chars) "
+        + "-" * 56
+        + "\nYou are a coding agent.\n"
+        + "-" * 80
+        + "\n\n"
+        + "---- agent execution "
+        + "-" * 59
+        + "\nDuration: 10s | Tokens: 1,000 in + 5,000 out | Cost: $0.050\n"
+        + "-" * 80
+        + "\n\n"
+        + "\n==== ATTEMPT 2 "
+        + "=" * 65
+        + "\nAgent: agent-1 | Scope: auth\n\n"
+        + "---- prompt (120 chars) "
+        + "-" * 56
+        + "\nFix the failing test.\n"
+        + "-" * 80
+        + "\n\n"
+        + "---- agent execution "
+        + "-" * 59
+        + "\nDuration: 15s | Tokens: 2,000 in + 8,000 out | Cost: $0.080\n"
+        + "-" * 80
+        + "\n\n"
+        + "\n==== ATTEMPT 3 "
+        + "=" * 65
+        + "\nAgent: agent-1 | Scope: auth\n\n"
+        + "---- agent execution "
+        + "-" * 59
+        + "\nDuration: 12s | Tokens: 1,500 in + 6,000 out | Cost: $0.060\n"
+        + "-" * 80
+        + "\n\n"
+        + "\n"
+        + "=" * 80
+        + "\n  MISSION COMPLETED\n  Attempts: 3 | Cost: $0.190 | Duration: 37s\n"
+        + "=" * 80
+        + "\n"
+    )
+
+    def test_nonexistent_file_returns_none(self, tmp_path):
+        from automission.cli import _read_mission_log
+
+        result = _read_mission_log(tmp_path / "nonexistent.log")
+        assert result is None
+
+    def test_full_output_strips_prompts_by_default(self, tmp_path):
+        from automission.cli import _read_mission_log
+
+        log_file = tmp_path / "mission.log"
+        log_file.write_text(self.SAMPLE_LOG, encoding="utf-8")
+
+        result = _read_mission_log(log_file)
+        assert result is not None
+        assert "ATTEMPT 1" in result
+        assert "ATTEMPT 2" in result
+        assert "ATTEMPT 3" in result
+        assert "agent execution" in result
+        # Prompts should be stripped
+        assert "You are a coding agent." not in result
+        assert "Fix the failing test." not in result
+
+    def test_verbose_includes_prompts(self, tmp_path):
+        from automission.cli import _read_mission_log
+
+        log_file = tmp_path / "mission.log"
+        log_file.write_text(self.SAMPLE_LOG, encoding="utf-8")
+
+        result = _read_mission_log(log_file, verbose=True)
+        assert "You are a coding agent." in result
+        assert "Fix the failing test." in result
+
+    def test_last_n_shows_only_last_attempts(self, tmp_path):
+        from automission.cli import _read_mission_log
+
+        log_file = tmp_path / "mission.log"
+        log_file.write_text(self.SAMPLE_LOG, encoding="utf-8")
+
+        result = _read_mission_log(log_file, last=2)
+        assert result is not None
+        # Should include header + plan
+        assert "AUTOMISSION" in result
+        assert "PLAN" in result
+        # Should NOT include attempt 1
+        assert "ATTEMPT 1" not in result
+        # Should include attempts 2 and 3
+        assert "ATTEMPT 2" in result
+        assert "ATTEMPT 3" in result
+        # Should include footer
+        assert "MISSION COMPLETED" in result
+
+    def test_last_n_larger_than_total_shows_all(self, tmp_path):
+        from automission.cli import _read_mission_log
+
+        log_file = tmp_path / "mission.log"
+        log_file.write_text(self.SAMPLE_LOG, encoding="utf-8")
+
+        result = _read_mission_log(log_file, last=10)
+        assert "ATTEMPT 1" in result
+        assert "ATTEMPT 2" in result
+        assert "ATTEMPT 3" in result
+
+    def test_last_and_verbose_combined(self, tmp_path):
+        from automission.cli import _read_mission_log
+
+        log_file = tmp_path / "mission.log"
+        log_file.write_text(self.SAMPLE_LOG, encoding="utf-8")
+
+        result = _read_mission_log(log_file, last=1, verbose=True)
+        # Only attempt 3 (which has no prompt section)
+        assert "ATTEMPT 1" not in result
+        assert "ATTEMPT 3" in result
+
 
 class TestLogsCommand:
     def test_logs_no_missions(self, runner, tmp_path):
@@ -321,6 +492,65 @@ class TestLogsCommand:
             result = runner.invoke(cli, ["logs", "nonexistent-id"])
             assert result.exit_code == 0
             assert "no mission" in result.output.lower()
+
+    def test_logs_reads_mission_log_file(self, runner, tmp_path):
+        """logs command should read mission.log when available."""
+        from automission.db import Ledger
+
+        ws = tmp_path / "test-mission"
+        ws.mkdir()
+        # Create a minimal DB so workspace is found
+        with Ledger(ws / "mission.db") as ledger:
+            ledger.create_mission("m1", goal="test", agents=1)
+        # Create a mission.log
+        (ws / "mission.log").write_text(
+            "==== PLAN " + "=" * 70 + "\nDuration: 1s\n\n"
+            "\n==== ATTEMPT 1 " + "=" * 65 + "\n"
+            "Agent: agent-1 | Scope: auth\n\n"
+            "---- agent execution " + "-" * 59 + "\n"
+            "Duration: 10s | Tokens: 1,000 in + 5,000 out | Cost: $0.050\n"
+            + "-" * 80
+            + "\n\n",
+            encoding="utf-8",
+        )
+
+        with patch("automission.cli.DEFAULT_BASE_DIR", tmp_path):
+            result = runner.invoke(cli, ["logs", "m1"])
+            assert result.exit_code == 0
+            assert "agent execution" in result.output
+            assert "Tokens: 1,000 in + 5,000 out" in result.output
+
+    def test_logs_fallback_to_db_when_no_log_file(self, runner, tmp_path):
+        """logs command should fallback to DB when mission.log doesn't exist."""
+        from automission.db import Ledger
+
+        ws = tmp_path / "test-mission"
+        ws.mkdir()
+        with Ledger(ws / "mission.db") as ledger:
+            ledger.create_mission("m1", goal="test", agents=1)
+            ledger.record_attempt(
+                mission_id="m1",
+                attempt_id="a1",
+                agent_id="agent-1",
+                attempt_number=1,
+                status="completed",
+                exit_code=0,
+                duration_s=10.0,
+                cost_usd=0.05,
+                token_input=1000,
+                token_output=5000,
+                changed_files=["file.py"],
+                verification_passed=True,
+                verification_result="{}",
+                commit_hash="abc123",
+            )
+
+        # No mission.log file — should fallback to DB
+        with patch("automission.cli.DEFAULT_BASE_DIR", tmp_path):
+            result = runner.invoke(cli, ["logs", "m1"])
+            assert result.exit_code == 0
+            assert "agent-1" in result.output
+            assert "PASS" in result.output
 
 
 class TestListCommand:
