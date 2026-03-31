@@ -316,8 +316,15 @@ def _agent_worker(
 
             try:
                 # Run the agent loop in the worktree
+                # Re-read mission for fresh total_attempts (other agents
+                # may have incremented it during claim/sync/heartbeat setup)
+                mission = ledger.get_mission(mission_id)
+                if mission is None or mission["total_attempts"] >= max_iterations:
+                    ledger.release_claim(claim_id, "budget_exhausted")
+                    break
+
                 # Budget remaining iterations across frontier groups
-                remaining_iters = max(0, max_iterations - mission["total_attempts"])
+                remaining_iters = max_iterations - mission["total_attempts"]
                 per_group_iterations = max(1, remaining_iters // max(len(frontier), 1))
 
                 # Get full AcceptanceGroup object for the claimed group
