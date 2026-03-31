@@ -334,7 +334,7 @@ def _run_oauth_login(backend: str) -> None:
 )
 @click.option("--verify", type=click.Path(exists=True), help="Path to verify.sh")
 @click.option("--skill", multiple=True, help="Skill source (repeatable)")
-@click.option("--agents", default=2, type=int, help="Number of agents")
+@click.option("--agents", default=1, type=int, help="Number of agents")
 @click.option("--max-iterations", default=20, type=int, help="Max attempts per agent")
 @click.option("--max-cost", default=10.0, type=float, help="Max total cost (USD)")
 @click.option("--timeout", default=3600, type=int, help="Max seconds")
@@ -408,7 +408,7 @@ def run(
     """Create and start a mission."""
     # ── Resolve config defaults ──
     cfg = load_config()
-    agents = resolve_default("agents", agents, cfg, 2)
+    agents = resolve_default("agents", agents, cfg, 1)
     max_cost = resolve_default("max_cost", max_cost, cfg, 10.0)
     timeout = resolve_default("timeout", timeout, cfg, 3600)
     backend = resolve_default("backend", backend, cfg, "claude")

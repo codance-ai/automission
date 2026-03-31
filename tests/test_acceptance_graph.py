@@ -437,9 +437,9 @@ class TestSingleAgentFrontierLoop:
                 event_writer=ew,
             )
 
-        # The first attempt's prompt should mention "Current Focus"
-        # with basic_operations (the first frontier group)
+        # The first attempt's prompt should have the Scope section
+        # (criteria are in ACCEPTANCE.md, not duplicated in the prompt)
         assert len(backend.attempts) >= 1
         first_prompt = backend.attempts[0].prompt
-        assert "Current Focus" in first_prompt
-        assert "basic_operations" in first_prompt
+        assert "## Scope" in first_prompt
+        assert "ACCEPTANCE.md contains only the criteria" in first_prompt

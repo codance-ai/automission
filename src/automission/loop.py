@@ -257,8 +257,8 @@ def _run_one_iteration(
 
     Extracted core used by both run_single_iteration() and run_loop().
 
-    If target_groups is set, the agent prompt focuses on those groups' criteria.
-    The critic still evaluates all groups for group_analysis computation.
+    If target_groups is set, both the agent prompt and critic are scoped
+    to those groups only.
     """
     # Clean stale lock file
     lock_file = workdir / ".git" / "index.lock"
@@ -271,8 +271,9 @@ def _run_one_iteration(
     attempt_number = (last["attempt_number"] + 1) if last else 1
     attempt_id = f"{mission_id}-{attempt_number}-{uuid.uuid4().hex[:6]}"
 
-    # Get ALL acceptance groups for critic (needs full picture)
+    # Get acceptance groups — scope to target groups for critic in multi-agent mode
     groups = ledger.get_acceptance_groups(mission_id)
+    critic_groups = target_groups if target_groups else groups
 
     # Check for dirty state
     dirty_state = _get_dirty_state(workdir)
@@ -368,7 +369,7 @@ def _run_one_iteration(
     t_harness_end = time.monotonic()
 
     t_critic_start = time.monotonic()
-    critic_result = critic.analyze(harness_result, groups)
+    critic_result = critic.analyze(harness_result, critic_groups)
     t_critic_end = time.monotonic()
 
     verification = VerificationResult(harness=harness_result, critic=critic_result)
@@ -507,21 +508,13 @@ This is your first attempt at this mission.
 Focus on making verify.sh pass. Start by reading the existing files."""
 
     if target_groups is not None:
-        group_names = [g.name for g in target_groups]
-        criteria_lines = []
-        for g in target_groups:
-            for c in g.criteria:
-                criteria_lines.append(f"- [{g.name}] {c.text}")
-        prompt += f"""
+        prompt += """
 
-## Current Focus
+## Scope
 
-You are working on the following acceptance group(s): **{", ".join(group_names)}**
-
-Criteria to satisfy:
-{chr(10).join(criteria_lines)}
-
-Focus ONLY on these criteria. Other groups will be handled separately."""
+ACCEPTANCE.md contains only the criteria you are responsible for.
+Other criteria are handled by other agents — implement only what ACCEPTANCE.md requires.
+verify.sh may include tests from completed groups — do not break those existing tests."""
 
     if dirty_state:
         prompt += f"""
