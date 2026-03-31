@@ -1132,26 +1132,95 @@ def _print_mission(mission: dict, ws: Path, ledger: Ledger) -> None:
             gate = "PASS" if a["verification_passed"] else "FAIL"
             color = "green" if a["verification_passed"] else "red"
             tokens = (a["token_input"] or 0) + (a["token_output"] or 0)
-            click.echo(
+            line = (
                 f"  #{a['attempt_number']}  {a['agent_id']:10s}  "
                 f"{click.style(gate, fg=color):4s}  "
                 f"{_fmt_tokens(tokens)}  {a['duration_s']:.0f}s"
             )
+            # Append critic summary if available
+            if a.get("verification_result"):
+                try:
+                    vr = VerificationResult.from_json(a["verification_result"])
+                    if vr.critic.summary:
+                        line += f" — {vr.critic.summary}"
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    pass
+            click.echo(line)
 
 
 # ── logs command ──
+
+
+def _read_mission_log(
+    log_path: Path,
+    *,
+    last: int | None = None,
+    verbose: bool = False,
+) -> str | None:
+    """Read mission.log and return filtered content.
+
+    Returns None if the file doesn't exist.
+
+    - ``last``: only include the header, last N attempt sections, and footer.
+    - ``verbose``: include prompt sections (skipped by default).
+    """
+    if not log_path.exists():
+        return None
+
+    content = log_path.read_text(encoding="utf-8")
+
+    # Strip prompt sections unless verbose.
+    # The end marker is exactly 80 dashes (written by mission_log.py).
+    if not verbose:
+        import re
+
+        content = re.sub(
+            r"---- prompt \([^)]+\) -+\n.*?\n-{80}\n\n",
+            "",
+            content,
+            flags=re.DOTALL,
+        )
+
+    if not last:
+        return content
+
+    # Split into sections by "==== ATTEMPT N" markers
+    import re
+
+    # Split keeping the delimiter with each section
+    parts = re.split(r"(?=\n==== ATTEMPT \d+)", content)
+
+    # parts[0] is everything before the first attempt (header + plan)
+    header = parts[0] if parts else ""
+
+    # Remaining parts are attempt sections
+    attempt_sections = parts[1:] if len(parts) > 1 else []
+
+    if not attempt_sections:
+        return content
+
+    # Check if the last section ends with a footer (==== MISSION ...)
+    footer = ""
+    last_section = attempt_sections[-1]
+    footer_match = re.search(r"\n(={40,}\n  MISSION .+)", last_section, flags=re.DOTALL)
+    if footer_match:
+        footer = "\n" + footer_match.group(1)
+        attempt_sections[-1] = last_section[: footer_match.start()]
+
+    selected = attempt_sections[-last:]
+    return header + "".join(selected) + footer
 
 
 @cli.command()
 @click.argument("mission_id", required=False)
 @click.option("--last", type=int, help="Show last N attempts")
 @click.option(
-    "-v", "--verbose", "verbose_logs", is_flag=True, help="Include verification details"
+    "-v", "--verbose", "verbose_logs", is_flag=True, help="Include prompt sections"
 )
 @click.option("-f", "--follow", is_flag=True, help="Live follow mode (poll every 2s)")
 @click.option("--json", "json_output", is_flag=True, help="JSON output")
 def logs(mission_id, last, verbose_logs, follow, json_output):
-    """Show mission attempt logs."""
+    """Show mission execution log (Plan, Agent, Verification phases)."""
     # Find the workspace
     ws = None
     if mission_id:
@@ -1175,55 +1244,6 @@ def logs(mission_id, last, verbose_logs, follow, json_output):
         click.echo("No missions found.")
         return
 
-    def _display_attempts():
-        with Ledger(ws / "mission.db") as ledger:
-            attempts = ledger.get_attempts(mission_id)
-            if not attempts:
-                click.echo("No attempts found.")
-                return 0
-
-            if last:
-                attempts = attempts[-last:]
-
-            groups = ledger.get_acceptance_groups(mission_id)
-
-            if json_output:
-                output = []
-                for a in attempts:
-                    entry = {
-                        "attempt_number": a["attempt_number"],
-                        "agent_id": a["agent_id"],
-                        "status": a["status"],
-                        "verification_passed": bool(a["verification_passed"]),
-                        "token_input": a["token_input"],
-                        "token_output": a["token_output"],
-                        "duration_s": a["duration_s"],
-                    }
-                    try:
-                        raw_files = json.loads(a.get("changed_files", "[]"))
-                        entry["changed_files"] = [
-                            f for f in raw_files if not _is_metadata_file(f)
-                        ]
-                    except (json.JSONDecodeError, TypeError):
-                        entry["changed_files"] = []
-                    if verbose_logs and a.get("verification_result"):
-                        try:
-                            entry["verification_result"] = json.loads(
-                                a["verification_result"]
-                            )
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-                    output.append(entry)
-                click.echo(json.dumps(output, indent=2))
-            else:
-                for i, a in enumerate(attempts):
-                    prev = attempts[i - 1] if i > 0 else None
-                    _render_attempt_log(
-                        a, groups, prev_attempt=prev, verbose=verbose_logs
-                    )
-
-            return len(attempts)
-
     if follow:
         # Follow mode: tail events.jsonl for all events (planner, groups, attempts)
         from automission.events import EventTailer
@@ -1246,8 +1266,66 @@ def logs(mission_id, last, verbose_logs, follow, json_output):
                 _render_event(event)
         except KeyboardInterrupt:
             pass
-    else:
-        _display_attempts()
+        return
+
+    if json_output:
+        with Ledger(ws / "mission.db") as ledger:
+            attempts = ledger.get_attempts(mission_id)
+            if not attempts:
+                click.echo("No attempts found.")
+                return
+
+            if last:
+                attempts = attempts[-last:]
+
+            output = []
+            for a in attempts:
+                entry = {
+                    "attempt_number": a["attempt_number"],
+                    "agent_id": a["agent_id"],
+                    "status": a["status"],
+                    "verification_passed": bool(a["verification_passed"]),
+                    "token_input": a["token_input"],
+                    "token_output": a["token_output"],
+                    "duration_s": a["duration_s"],
+                    "cost_usd": a["cost_usd"],
+                }
+                try:
+                    raw_files = json.loads(a.get("changed_files", "[]"))
+                    entry["changed_files"] = [
+                        f for f in raw_files if not _is_metadata_file(f)
+                    ]
+                except (json.JSONDecodeError, TypeError):
+                    entry["changed_files"] = []
+                if verbose_logs and a.get("verification_result"):
+                    try:
+                        entry["verification_result"] = json.loads(
+                            a["verification_result"]
+                        )
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                output.append(entry)
+            click.echo(json.dumps(output, indent=2))
+        return
+
+    # Default text mode: read mission.log directly
+    log_content = _read_mission_log(ws / "mission.log", last=last, verbose=verbose_logs)
+    if not log_content:
+        # Fallback to DB summary if mission.log doesn't exist
+        with Ledger(ws / "mission.db") as ledger:
+            attempts = ledger.get_attempts(mission_id)
+            if not attempts:
+                click.echo("No attempts found.")
+                return
+            if last:
+                attempts = attempts[-last:]
+            groups = ledger.get_acceptance_groups(mission_id)
+            for i, a in enumerate(attempts):
+                prev = attempts[i - 1] if i > 0 else None
+                _render_attempt_log(a, groups, prev_attempt=prev, verbose=verbose_logs)
+        return
+
+    click.echo(log_content)
 
 
 # ── attach command ──
