@@ -7,9 +7,9 @@ import json
 import pytest
 from unittest.mock import Mock
 
-from automission.models import PlanCriterion, PlanDraft, PlanGroup, VerificationSurface
+from automission.models import AcceptanceGroup, Criterion, PlanCriterion, PlanDraft, PlanGroup, VerificationSurface
 from automission.planner import validate_dag, PlanValidationError
-from automission.planner import render_mission_md, render_acceptance_md
+from automission.planner import render_mission_md, render_acceptance_md, render_scoped_acceptance_md
 from automission.planner import Planner
 from automission.acceptance import parse_acceptance_md
 
@@ -171,6 +171,92 @@ class TestRenderers:
         assert len(parsed) == 1
         assert parsed[0].id == "setup"
         assert parsed[0].depends_on == []
+
+
+class TestRenderScopedAcceptanceMd:
+    def test_single_group_single_criterion(self):
+        groups = [
+            AcceptanceGroup(
+                id="auth",
+                name="Auth",
+                depends_on=[],
+                criteria=[Criterion(id="auth_c1", group_id="auth", text="Login works")],
+            )
+        ]
+        result = render_scoped_acceptance_md(groups)
+        assert "# Acceptance Criteria" in result
+        assert "## Auth" in result
+        assert "- Login works" in result
+        assert "Depends on:" not in result
+
+    def test_multiple_groups_with_dependencies(self):
+        groups = [
+            AcceptanceGroup(
+                id="db",
+                name="Database",
+                depends_on=[],
+                criteria=[Criterion(id="db_c1", group_id="db", text="Schema created")],
+            ),
+            AcceptanceGroup(
+                id="api",
+                name="API",
+                depends_on=["db"],
+                criteria=[
+                    Criterion(id="api_c1", group_id="api", text="GET /items returns list"),
+                    Criterion(id="api_c2", group_id="api", text="POST /items creates item"),
+                ],
+            ),
+        ]
+        result = render_scoped_acceptance_md(groups)
+        assert "## Database" in result
+        assert "## API" in result
+        assert "Depends on: db" in result
+        assert "- Schema created" in result
+        assert "- GET /items returns list" in result
+        assert "- POST /items creates item" in result
+
+    def test_empty_criteria_list(self):
+        groups = [
+            AcceptanceGroup(
+                id="empty_group",
+                name="Empty Group",
+                depends_on=[],
+                criteria=[],
+            )
+        ]
+        result = render_scoped_acceptance_md(groups)
+        assert "# Acceptance Criteria" in result
+        assert "## Empty Group" in result
+        # No criteria lines
+        lines = result.splitlines()
+        criterion_lines = [l for l in lines if l.startswith("- ")]
+        assert criterion_lines == []
+
+    def test_only_includes_specified_groups(self):
+        """Only groups passed in should appear, not others."""
+        single_group = [
+            AcceptanceGroup(
+                id="auth",
+                name="Auth",
+                depends_on=[],
+                criteria=[Criterion(id="auth_c1", group_id="auth", text="Login works")],
+            )
+        ]
+        result = render_scoped_acceptance_md(single_group)
+        assert "## Auth" in result
+        assert "## API" not in result
+
+    def test_ends_with_newline(self):
+        groups = [
+            AcceptanceGroup(
+                id="setup",
+                name="Setup",
+                depends_on=[],
+                criteria=[Criterion(id="s_c1", group_id="setup", text="Configured")],
+            )
+        ]
+        result = render_scoped_acceptance_md(groups)
+        assert result.endswith("\n")
 
 
 def _mock_cli_output(plan_dict: dict) -> str:

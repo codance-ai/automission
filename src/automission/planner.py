@@ -6,7 +6,7 @@ import logging
 import re
 
 from automission.acceptance import _to_snake_case
-from automission.models import PlanCriterion, PlanDraft, PlanGroup, VerificationSurface
+from automission.models import AcceptanceGroup, PlanCriterion, PlanDraft, PlanGroup, VerificationSurface
 from automission.structured_output import StructuredOutputBackend
 
 logger = logging.getLogger(__name__)
@@ -79,6 +79,21 @@ def render_acceptance_md(draft: PlanDraft) -> str:
     """Render ACCEPTANCE.md from PlanDraft. Round-trip compatible with parse_acceptance_md()."""
     lines = ["# Acceptance Criteria"]
     for group in draft.groups:
+        lines.append("")
+        lines.append(f"## {group.name}")
+        if group.depends_on:
+            lines.append("")
+            lines.append(f"Depends on: {', '.join(group.depends_on)}")
+        lines.append("")
+        for criterion in group.criteria:
+            lines.append(f"- {criterion.text}")
+    return "\n".join(lines) + "\n"
+
+
+def render_scoped_acceptance_md(groups: list[AcceptanceGroup]) -> str:
+    """Render ACCEPTANCE.md containing only the specified groups' criteria."""
+    lines = ["# Acceptance Criteria"]
+    for group in groups:
         lines.append("")
         lines.append(f"## {group.name}")
         if group.depends_on:
