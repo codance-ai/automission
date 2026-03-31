@@ -1325,7 +1325,25 @@ class TestRenderEventRichOutput:
         _render_event(event)
         out = capsys.readouterr().out
         assert "PASS" in out
+        assert "IN PROGRESS" not in out
         assert "All tests pass" in out
+
+    def test_verification_in_progress_when_next_actions(self, capsys):
+        from automission.cli import _render_event
+
+        event = {
+            "type": "verification",
+            "passed": True,
+            "summary": "Only input_handling is verified complete.",
+            "group_analysis": {"input_handling": True, "output_formatting": False},
+            "next_actions": ["Add tests for output_formatting group"],
+        }
+        _render_event(event)
+        out = capsys.readouterr().out
+        assert "IN PROGRESS" in out
+        assert "PASS" not in out
+        assert "FAIL" not in out
+        assert "Add tests for output_formatting" in out
 
     def test_verification_no_duplicate_summary(self, capsys):
         """Summary should appear exactly once (was a bug)."""
@@ -1341,3 +1359,39 @@ class TestRenderEventRichOutput:
         _render_event(event)
         out = capsys.readouterr().out
         assert out.count("Unique summary text.") == 1
+
+
+class TestAttemptGateLabel:
+    """Tests for _attempt_gate_label helper."""
+
+    def test_fail(self):
+        from automission.cli import _attempt_gate_label
+
+        attempt = {"verification_passed": False, "verification_result": None}
+        assert _attempt_gate_label(attempt) == ("FAIL", "red")
+
+    def test_pass_no_next_actions(self):
+        from automission.cli import _attempt_gate_label
+
+        vr = json.dumps({"critic": {"next_actions": []}})
+        attempt = {"verification_passed": True, "verification_result": vr}
+        assert _attempt_gate_label(attempt) == ("PASS", "green")
+
+    def test_in_progress_with_next_actions(self):
+        from automission.cli import _attempt_gate_label
+
+        vr = json.dumps({"critic": {"next_actions": ["Add more tests"]}})
+        attempt = {"verification_passed": True, "verification_result": vr}
+        assert _attempt_gate_label(attempt) == ("IN PROGRESS", "yellow")
+
+    def test_pass_when_no_verification_result(self):
+        from automission.cli import _attempt_gate_label
+
+        attempt = {"verification_passed": True, "verification_result": None}
+        assert _attempt_gate_label(attempt) == ("PASS", "green")
+
+    def test_pass_on_malformed_verification_result(self):
+        from automission.cli import _attempt_gate_label
+
+        attempt = {"verification_passed": True, "verification_result": "not-json"}
+        assert _attempt_gate_label(attempt) == ("PASS", "green")

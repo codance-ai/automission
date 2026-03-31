@@ -461,9 +461,14 @@ def run_executor(workspace_dir: Path, mission_id: str) -> None:
             heartbeat_thread.start()
 
             # Emit mission_started
+            agents = mission.get("agents", 1) if mission else 1
             event_writer.emit(
                 "mission_started",
-                {"mission_id": mission_id, "executor_id": executor_id},
+                {
+                    "mission_id": mission_id,
+                    "executor_id": executor_id,
+                    "agents": agents,
+                },
             )
 
             # Run the mission
