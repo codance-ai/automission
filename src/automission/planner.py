@@ -6,7 +6,13 @@ import logging
 import re
 
 from automission.acceptance import _to_snake_case
-from automission.models import AcceptanceGroup, PlanCriterion, PlanDraft, PlanGroup, VerificationSurface
+from automission.models import (
+    AcceptanceGroup,
+    PlanCriterion,
+    PlanDraft,
+    PlanGroup,
+    VerificationSurface,
+)
 from automission.structured_output import StructuredOutputBackend
 
 logger = logging.getLogger(__name__)

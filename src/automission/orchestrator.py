@@ -27,11 +27,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _scope_acceptance_md(worktree_dir: Path, groups: list) -> None:
-    """Write scoped ACCEPTANCE.md and mark it as assume-unchanged in git."""
+def _scope_acceptance_md(worktree_dir: Path, groups: list) -> bool:
+    """Write scoped ACCEPTANCE.md and mark it as assume-unchanged in git.
+
+    Returns True if scoping was performed, False if skipped (file missing).
+    """
     acceptance_path = worktree_dir / "ACCEPTANCE.md"
     if not acceptance_path.exists():
-        return
+        return False
     acceptance_path.write_text(render_scoped_acceptance_md(groups))
     subprocess.run(
         ["git", "update-index", "--assume-unchanged", "ACCEPTANCE.md"],
@@ -39,6 +42,7 @@ def _scope_acceptance_md(worktree_dir: Path, groups: list) -> None:
         capture_output=True,
     )
     logger.debug("Scoped ACCEPTANCE.md to %d group(s) in %s", len(groups), worktree_dir)
+    return True
 
 
 def _restore_acceptance_md(worktree_dir: Path) -> None:
@@ -341,7 +345,7 @@ def _agent_worker(
             claimed_group = [g for g in all_groups if g.id == group_id]
 
             # Write scoped ACCEPTANCE.md for this agent's claimed group
-            _scope_acceptance_md(worktree_dir, claimed_group)
+            acceptance_scoped = _scope_acceptance_md(worktree_dir, claimed_group)
 
             # Start heartbeat thread
             heartbeat_stop = threading.Event()
@@ -476,8 +480,9 @@ def _agent_worker(
                     break
 
             finally:
-                # Restore original ACCEPTANCE.md from git
-                _restore_acceptance_md(worktree_dir)
+                # Restore original ACCEPTANCE.md from git (only if scoping was applied)
+                if acceptance_scoped:
+                    _restore_acceptance_md(worktree_dir)
                 # Stop heartbeat
                 heartbeat_stop.set()
                 heartbeat_thread.join(timeout=5)

@@ -7,9 +7,20 @@ import json
 import pytest
 from unittest.mock import Mock
 
-from automission.models import AcceptanceGroup, Criterion, PlanCriterion, PlanDraft, PlanGroup, VerificationSurface
+from automission.models import (
+    AcceptanceGroup,
+    Criterion,
+    PlanCriterion,
+    PlanDraft,
+    PlanGroup,
+    VerificationSurface,
+)
 from automission.planner import validate_dag, PlanValidationError
-from automission.planner import render_mission_md, render_acceptance_md, render_scoped_acceptance_md
+from automission.planner import (
+    render_mission_md,
+    render_acceptance_md,
+    render_scoped_acceptance_md,
+)
 from automission.planner import Planner
 from automission.acceptance import parse_acceptance_md
 
@@ -202,8 +213,12 @@ class TestRenderScopedAcceptanceMd:
                 name="API",
                 depends_on=["db"],
                 criteria=[
-                    Criterion(id="api_c1", group_id="api", text="GET /items returns list"),
-                    Criterion(id="api_c2", group_id="api", text="POST /items creates item"),
+                    Criterion(
+                        id="api_c1", group_id="api", text="GET /items returns list"
+                    ),
+                    Criterion(
+                        id="api_c2", group_id="api", text="POST /items creates item"
+                    ),
                 ],
             ),
         ]
@@ -229,7 +244,7 @@ class TestRenderScopedAcceptanceMd:
         assert "## Empty Group" in result
         # No criteria lines
         lines = result.splitlines()
-        criterion_lines = [l for l in lines if l.startswith("- ")]
+        criterion_lines = [line for line in lines if line.startswith("- ")]
         assert criterion_lines == []
 
     def test_only_includes_specified_groups(self):

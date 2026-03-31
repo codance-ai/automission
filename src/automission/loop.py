@@ -98,9 +98,8 @@ def run_loop(
 ) -> LoopResult:
     """Main agent loop with circuit breakers, stall detection, and resume.
 
-    If target_groups is provided, the agent focuses on those groups only
-    (used by orchestrator for claimed groups). The critic still evaluates
-    all groups to compute group_analysis.
+    If target_groups is provided, both the agent prompt and the critic are
+    scoped to those groups only (used by orchestrator for claimed groups).
 
     Returns a LoopResult containing the MissionOutcome string and
     the last VerificationResult (for bulk group-completion marking).
