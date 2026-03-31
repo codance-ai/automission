@@ -9,8 +9,13 @@ from automission.backend.mock import MockBackend
 from automission.critic import Critic
 from automission.db import Ledger
 from automission.harness import Harness
-from automission.loop import run_single_iteration, run_loop
-from automission.models import LoopResult, VerificationResult
+from automission.loop import run_single_iteration, run_loop, _build_first_attempt_prompt
+from automission.models import (
+    AcceptanceGroup,
+    Criterion,
+    LoopResult,
+    VerificationResult,
+)
 from conftest import MockCriticBackend
 from automission.workspace import create_mission
 
@@ -680,3 +685,124 @@ class TestEventEnrichment:
         # Second attempt SHOULD have scope
         assert "scope" in start_events[1]
         assert start_events[1]["scope"]  # non-empty
+
+
+class TestBuildFirstAttemptPromptScoped:
+    """Test _build_first_attempt_prompt with target_groups."""
+
+    @pytest.fixture
+    def sample_target_groups(self):
+        return [
+            AcceptanceGroup(
+                id="g1",
+                name="Core API",
+                criteria=[
+                    Criterion(id="c1", group_id="g1", text="Endpoint returns 200"),
+                    Criterion(id="c2", group_id="g1", text="Response is JSON"),
+                ],
+            ),
+        ]
+
+    def test_scoped_prompt_contains_scope_section(self, sample_target_groups):
+        prompt = _build_first_attempt_prompt(target_groups=sample_target_groups)
+        assert "## Scope" in prompt
+        assert (
+            "ACCEPTANCE.md contains only the criteria you are responsible for" in prompt
+        )
+
+    def test_scoped_prompt_does_not_contain_focus_only(self, sample_target_groups):
+        prompt = _build_first_attempt_prompt(target_groups=sample_target_groups)
+        assert "Focus ONLY" not in prompt
+        assert "## Current Focus" not in prompt
+
+    def test_scoped_prompt_mentions_verify_sh_safety(self, sample_target_groups):
+        prompt = _build_first_attempt_prompt(target_groups=sample_target_groups)
+        assert "do not break those existing tests" in prompt
+
+    def test_unscoped_prompt_has_no_scope_section(self):
+        prompt = _build_first_attempt_prompt(target_groups=None)
+        assert "## Scope" not in prompt
+
+    def test_scoped_prompt_does_not_duplicate_criteria(self, sample_target_groups):
+        prompt = _build_first_attempt_prompt(target_groups=sample_target_groups)
+        assert "Endpoint returns 200" not in prompt
+        assert "Response is JSON" not in prompt
+
+
+class TestCriticScoping:
+    """Test that critic receives only target_groups when set."""
+
+    def test_critic_receives_target_groups(self, mission_workspace):
+        ws, backend = mission_workspace
+        harness = Harness()
+
+        # Create a spy critic to capture the groups passed to analyze
+        captured_groups = []
+
+        class SpyCriticBackend:
+            def query(self, prompt, model, json_schema, timeout=300):
+                return {
+                    "summary": "All tests pass.",
+                    "root_cause": "",
+                    "next_actions": [],
+                    "blockers": [],
+                    "group_analysis": [],
+                }
+
+        critic = Critic(backend=SpyCriticBackend())
+        original_analyze = critic.analyze
+
+        def spy_analyze(harness_result, groups):
+            captured_groups.extend(groups)
+            return original_analyze(harness_result, groups)
+
+        critic.analyze = spy_analyze
+
+        target = [
+            AcceptanceGroup(
+                id="g1",
+                name="Core API",
+                criteria=[
+                    Criterion(id="c1", group_id="g1", text="Endpoint returns 200"),
+                ],
+            ),
+        ]
+
+        run_single_iteration(
+            mission_id="test-001",
+            workdir=ws,
+            backend=backend,
+            harness=harness,
+            critic=critic,
+            target_groups=target,
+        )
+
+        # Critic should have received only the target groups, not all groups
+        assert len(captured_groups) == 1
+        assert captured_groups[0].id == "g1"
+        assert captured_groups[0].name == "Core API"
+
+    def test_critic_receives_all_groups_when_no_target(self, mission_workspace):
+        ws, backend = mission_workspace
+        harness = Harness()
+        critic = Critic(backend=MockCriticBackend())
+
+        captured_groups = []
+        original_analyze = critic.analyze
+
+        def spy_analyze(harness_result, groups):
+            captured_groups.extend(groups)
+            return original_analyze(harness_result, groups)
+
+        critic.analyze = spy_analyze
+
+        run_single_iteration(
+            mission_id="test-001",
+            workdir=ws,
+            backend=backend,
+            harness=harness,
+            critic=critic,
+        )
+
+        # Should have received all groups from the ledger (not empty)
+        assert len(captured_groups) > 0

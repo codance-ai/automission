@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 import threading
 import time
 import uuid
@@ -15,6 +16,7 @@ from automission.events import EventWriter
 from automission.loop import run_loop
 from automission.merge import atomic_merge
 from automission.models import MissionOutcome
+from automission.planner import render_scoped_acceptance_md
 from automission.critic import Critic
 from automission.harness import Harness, run_verify_sh
 from automission.worktree import cleanup_worktree, create_agent_worktree, sync_from_main
@@ -23,6 +25,40 @@ if TYPE_CHECKING:
     from automission.mission_log import MissionLogger
 
 logger = logging.getLogger(__name__)
+
+
+def _scope_acceptance_md(worktree_dir: Path, groups: list) -> bool:
+    """Write scoped ACCEPTANCE.md and mark it as assume-unchanged in git.
+
+    Returns True if scoping was performed, False if skipped (file missing).
+    """
+    acceptance_path = worktree_dir / "ACCEPTANCE.md"
+    if not acceptance_path.exists():
+        return False
+    acceptance_path.write_text(render_scoped_acceptance_md(groups))
+    subprocess.run(
+        ["git", "update-index", "--assume-unchanged", "ACCEPTANCE.md"],
+        cwd=worktree_dir,
+        capture_output=True,
+    )
+    logger.debug("Scoped ACCEPTANCE.md to %d group(s) in %s", len(groups), worktree_dir)
+    return True
+
+
+def _restore_acceptance_md(worktree_dir: Path) -> None:
+    """Restore original ACCEPTANCE.md from git after agent loop completes."""
+    subprocess.run(
+        ["git", "update-index", "--no-assume-unchanged", "ACCEPTANCE.md"],
+        cwd=worktree_dir,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "checkout", "--", "ACCEPTANCE.md"],
+        cwd=worktree_dir,
+        capture_output=True,
+    )
+    logger.debug("Restored original ACCEPTANCE.md in %s", worktree_dir)
+
 
 # Heartbeat interval in seconds
 _HEARTBEAT_INTERVAL = 30
@@ -304,6 +340,13 @@ def _agent_worker(
                 ledger.release_claim(claim_id, "failed")
                 continue
 
+            # Get full AcceptanceGroup object for the claimed group
+            all_groups = ledger.get_acceptance_groups(mission_id)
+            claimed_group = [g for g in all_groups if g.id == group_id]
+
+            # Write scoped ACCEPTANCE.md for this agent's claimed group
+            acceptance_scoped = _scope_acceptance_md(worktree_dir, claimed_group)
+
             # Start heartbeat thread
             heartbeat_stop = threading.Event()
             heartbeat_thread = threading.Thread(
@@ -319,10 +362,6 @@ def _agent_worker(
                 # Budget remaining iterations across frontier groups
                 remaining_iters = max(0, max_iterations - mission["total_attempts"])
                 per_group_iterations = max(1, remaining_iters // max(len(frontier), 1))
-
-                # Get full AcceptanceGroup object for the claimed group
-                all_groups = ledger.get_acceptance_groups(mission_id)
-                claimed_group = [g for g in all_groups if g.id == group_id]
 
                 loop_result = run_loop(
                     mission_id=mission_id,
@@ -442,6 +481,9 @@ def _agent_worker(
                     break
 
             finally:
+                # Restore original ACCEPTANCE.md from git (only if scoping was applied)
+                if acceptance_scoped:
+                    _restore_acceptance_md(worktree_dir)
                 # Stop heartbeat
                 heartbeat_stop.set()
                 heartbeat_thread.join(timeout=5)

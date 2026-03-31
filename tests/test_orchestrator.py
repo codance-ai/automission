@@ -1,6 +1,7 @@
 """Tests for the multi-agent orchestrator."""
 
 import stat
+import subprocess
 import threading
 from pathlib import Path
 
@@ -10,7 +11,12 @@ from automission.backend.mock import MockBackend
 from automission.db import Ledger
 from automission.critic import Critic
 from automission.harness import Harness
-from automission.orchestrator import run_multi_agent
+from automission.models import AcceptanceGroup, Criterion
+from automission.orchestrator import (
+    _restore_acceptance_md,
+    _scope_acceptance_md,
+    run_multi_agent,
+)
 from conftest import MockCriticBackend
 from automission.workspace import create_mission
 
@@ -300,3 +306,160 @@ class TestRunMultiAgent:
 
         # Should eventually stop (not hang)
         assert outcome in ("failed", "resource_limit", "cancelled")
+
+
+@pytest.fixture
+def git_repo(tmp_path):
+    """Create a minimal git repo with an ACCEPTANCE.md committed."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    original_content = ACCEPTANCE_MD
+    (repo / "ACCEPTANCE.md").write_text(original_content)
+    subprocess.run(["git", "init"], cwd=repo, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=repo,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=repo,
+        capture_output=True,
+        check=True,
+    )
+    subprocess.run(["git", "add", "."], cwd=repo, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=repo,
+        capture_output=True,
+        check=True,
+    )
+    return repo, original_content
+
+
+class TestScopeAcceptanceMd:
+    """Tests for _scope_acceptance_md and _restore_acceptance_md helpers."""
+
+    def test_scope_writes_only_claimed_group(self, git_repo):
+        """After scoping, ACCEPTANCE.md contains only the claimed group's criteria."""
+        repo, original_content = git_repo
+        group = AcceptanceGroup(
+            id="basic_operations",
+            name="Basic Operations",
+            depends_on=[],
+            criteria=[
+                Criterion(
+                    id="c1",
+                    group_id="basic_operations",
+                    text="add(a, b) returns the sum of a and b",
+                ),
+                Criterion(
+                    id="c2",
+                    group_id="basic_operations",
+                    text="subtract(a, b) returns the difference of a and b",
+                ),
+            ],
+        )
+
+        _scope_acceptance_md(repo, [group])
+
+        scoped = (repo / "ACCEPTANCE.md").read_text()
+        assert "Basic Operations" in scoped
+        assert "add(a, b) returns the sum of a and b" in scoped
+        assert "Edge Cases" not in scoped
+        assert "edge_cases" not in scoped
+
+    def test_restore_brings_back_original(self, git_repo):
+        """After restoration, ACCEPTANCE.md matches the original committed content."""
+        repo, original_content = git_repo
+        group = AcceptanceGroup(
+            id="edge_cases",
+            name="Edge Cases",
+            depends_on=["basic_operations"],
+            criteria=[
+                Criterion(
+                    id="c3",
+                    group_id="edge_cases",
+                    text="divide(a, 0) raises ValueError",
+                ),
+            ],
+        )
+
+        _scope_acceptance_md(repo, [group])
+        # Verify it was scoped
+        assert "Edge Cases" in (repo / "ACCEPTANCE.md").read_text()
+        assert "Basic Operations" not in (repo / "ACCEPTANCE.md").read_text()
+
+        _restore_acceptance_md(repo)
+
+        restored = (repo / "ACCEPTANCE.md").read_text()
+        assert restored == original_content
+
+    def test_assume_unchanged_flag_set_after_scope(self, git_repo):
+        """Git assume-unchanged flag is set after scoping."""
+        repo, _ = git_repo
+        group = AcceptanceGroup(
+            id="basic_operations",
+            name="Basic Operations",
+            criteria=[
+                Criterion(
+                    id="c1",
+                    group_id="basic_operations",
+                    text="add(a, b) returns the sum",
+                ),
+            ],
+        )
+
+        _scope_acceptance_md(repo, [group])
+
+        result = subprocess.run(
+            ["git", "ls-files", "-v", "ACCEPTANCE.md"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+        )
+        # 'h' prefix means assume-unchanged; 'H' means tracked normally
+        assert result.stdout.startswith("h "), (
+            f"Expected assume-unchanged flag 'h', got: {result.stdout!r}"
+        )
+
+    def test_assume_unchanged_flag_cleared_after_restore(self, git_repo):
+        """Git assume-unchanged flag is cleared after restoration."""
+        repo, _ = git_repo
+        group = AcceptanceGroup(
+            id="basic_operations",
+            name="Basic Operations",
+            criteria=[
+                Criterion(
+                    id="c1",
+                    group_id="basic_operations",
+                    text="add(a, b) returns the sum",
+                ),
+            ],
+        )
+
+        _scope_acceptance_md(repo, [group])
+        _restore_acceptance_md(repo)
+
+        result = subprocess.run(
+            ["git", "ls-files", "-v", "ACCEPTANCE.md"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+        )
+        # 'H' prefix means tracked normally (not assume-unchanged)
+        assert result.stdout.startswith("H "), (
+            f"Expected normal tracked flag 'H', got: {result.stdout!r}"
+        )
+
+    def test_scope_no_op_when_file_missing(self, tmp_path):
+        """Scoping is a no-op when ACCEPTANCE.md does not exist."""
+        group = AcceptanceGroup(
+            id="basic_operations",
+            name="Basic Operations",
+            criteria=[],
+        )
+        # Should not raise
+        _scope_acceptance_md(tmp_path, [group])
+        assert not (tmp_path / "ACCEPTANCE.md").exists()
